@@ -5,6 +5,8 @@ interface MarketingLayoutProps {
   children: React.ReactNode
 }
 
+export const dynamic = 'force-dynamic'
+
 export default function MarketingLayout({
   children,
 }: MarketingLayoutProps) {
