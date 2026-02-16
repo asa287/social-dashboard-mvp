@@ -1,6 +1,7 @@
 
 import { DashboardNav } from "@/components/dashboard-nav"
 import { UserNav } from "@/components/user-nav"
+import { LanguageSwitcher } from "@/components/language-switcher"
 
 interface DashboardLayoutProps {
     children: React.ReactNode
@@ -17,6 +18,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                         </a>
                     </div>
                     <div className="flex items-center space-x-4">
+                        <LanguageSwitcher />
                         <UserNav />
                     </div>
                 </div>

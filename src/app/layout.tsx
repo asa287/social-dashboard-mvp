@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { I18nProvider } from "@/components/i18n-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,10 +18,13 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-      <html lang="en">
-        <body className={inter.className}>{children}</body>
-      </html>
+      <I18nProvider>
+        <html lang="en">
+          <body className={inter.className}>{children}</body>
+        </html>
+      </I18nProvider>
     </ClerkProvider>
   );
 }
+
 

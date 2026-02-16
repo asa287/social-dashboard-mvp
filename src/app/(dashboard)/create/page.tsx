@@ -5,11 +5,11 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { useI18n } from "@/components/i18n-provider";
 import {
     Sparkles,
     Send,
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 export default function CreatePostPage() {
+    const { t } = useI18n();
     const [content, setContent] = useState("");
     const [isPolishing, setIsPolishing] = useState(false);
 
@@ -38,14 +39,14 @@ export default function CreatePostPage() {
         <div className="flex flex-col space-y-6 p-4 md:p-8">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">内容创作中心</h1>
-                    <p className="text-muted-foreground">在这里编写你的爆款内容，并实时预览多端效果。</p>
+                    <h1 className="text-3xl font-bold tracking-tight">{t.create.title}</h1>
+                    <p className="text-muted-foreground">{t.create.subtitle}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline">保存草稿</Button>
+                    <Button variant="outline">{t.create.saveDraft}</Button>
                     <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700">
                         <Send className="mr-2 h-4 w-4" />
-                        发布到矩阵
+                        {t.create.postToMatrix}
                     </Button>
                 </div>
             </div>
@@ -57,7 +58,7 @@ export default function CreatePostPage() {
                         <CardContent className="pt-6">
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                    <Label htmlFor="content" className="text-lg font-semibold">内容编辑</Label>
+                                    <Label htmlFor="content" className="text-lg font-semibold">{t.create.editorTitle}</Label>
                                     <Button
                                         variant="ghost"
                                         size="sm"
@@ -66,12 +67,12 @@ export default function CreatePostPage() {
                                         className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
                                     >
                                         <Sparkles className={`mr-2 h-4 w-4 ${isPolishing ? "animate-spin" : ""}`} />
-                                        {isPolishing ? "AI 润色中..." : "AI 一键润色"}
+                                        {isPolishing ? t.create.aiPolishing : t.create.aiPolish}
                                     </Button>
                                 </div>
                                 <Textarea
                                     id="content"
-                                    placeholder="写下你的精彩瞬间..."
+                                    placeholder={t.create.placeholder}
                                     className="min-h-[300px] text-lg resize-none border-none focus-visible:ring-0 p-0"
                                     value={content}
                                     onChange={(e) => setContent(e.target.value)}
@@ -79,9 +80,9 @@ export default function CreatePostPage() {
                                 <Separator />
                                 <div className="flex items-center gap-4 py-2">
                                     <Button variant="outline" size="sm" className="rounded-full">
-                                        <ImageIcon className="mr-2 h-4 w-4" /> 媒体上传
+                                        <ImageIcon className="mr-2 h-4 w-4" /> {t.create.uploadMedia}
                                     </Button>
-                                    <p className="text-xs text-muted-foreground italic">支持拖拽图片或视频 (Cloudinary 集成中)</p>
+                                    <p className="text-xs text-muted-foreground italic">{t.create.uploadHint} (Cloudinary 集成中)</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -89,19 +90,19 @@ export default function CreatePostPage() {
 
                     <Card>
                         <CardContent className="pt-6 space-y-4">
-                            <h3 className="font-semibold">发布设置</h3>
+                            <h3 className="font-semibold">{t.create.settings}</h3>
                             <div className="flex flex-wrap gap-4">
                                 <div className="flex items-center space-x-2 border rounded-lg p-2 bg-muted/50">
-                                    <span className="text-xs font-medium">目标平台:</span>
+                                    <span className="text-xs font-medium">{t.create.targetPlatforms}:</span>
                                     <div className="flex gap-2">
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" /> <span className="text-xs">小红书</span>
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" /> <span className="text-xs">抖音</span>
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" /> <span className="text-xs">B站</span>
+                                        <CheckCircle2 className="h-4 w-4 text-green-500" /> <span className="text-xs">{t.create.platforms.xiaohongshu}</span>
+                                        <CheckCircle2 className="h-4 w-4 text-green-500" /> <span className="text-xs">{t.create.platforms.douyin}</span>
+                                        <CheckCircle2 className="h-4 w-4 text-green-500" /> <span className="text-xs">{t.create.platforms.bilibili}</span>
                                     </div>
                                 </div>
                                 <div className="flex items-center space-x-2 border rounded-lg p-2 bg-muted/50">
-                                    <span className="text-xs font-medium">版权保护:</span>
-                                    <span className="text-xs text-muted-foreground">已开启智能水印</span>
+                                    <span className="text-xs font-medium">{t.create.copyrightShield}:</span>
+                                    <span className="text-xs text-muted-foreground">{t.create.copyrightActive}</span>
                                 </div>
                             </div>
                         </CardContent>
@@ -111,19 +112,18 @@ export default function CreatePostPage() {
                 {/* Right: Preview Section */}
                 <div className="flex flex-col space-y-4">
                     <div className="flex items-center gap-2 mb-2 font-semibold text-lg">
-                        <Smartphone className="h-5 w-5" /> 多端实时预览
+                        <Smartphone className="h-5 w-5" /> {t.create.previewTitle}
                     </div>
 
                     <Tabs defaultValue="xiaohongshu" className="w-full">
                         <TabsList className="grid w-full grid-cols-4">
-                            <TabsTrigger value="xiaohongshu">小红书</TabsTrigger>
-                            <TabsTrigger value="douyin">抖音</TabsTrigger>
-                            <TabsTrigger value="bilibili">B站</TabsTrigger>
-                            <TabsTrigger value="xiaoyuzhou">小宇宙</TabsTrigger>
+                            <TabsTrigger value="xiaohongshu">{t.create.platforms.xiaohongshu}</TabsTrigger>
+                            <TabsTrigger value="douyin">{t.create.platforms.douyin}</TabsTrigger>
+                            <TabsTrigger value="bilibili">{t.create.platforms.bilibili}</TabsTrigger>
+                            <TabsTrigger value="xiaoyuzhou">{t.create.platforms.xiaoyuzhou}</TabsTrigger>
                         </TabsList>
 
                         <div className="mt-6 flex justify-center">
-                            {/* This is where our high-fidelity phone mocks will go */}
                             <TabsContent value="xiaohongshu" className="w-full focus-visible:ring-0">
                                 <Card className="mx-auto w-[350px] aspect-[9/19] rounded-[3rem] border-[12px] border-slate-900 shadow-2xl relative overflow-hidden bg-white">
                                     <div className="absolute top-0 w-full h-6 bg-slate-900 flex justify-center items-end pb-1">
@@ -135,13 +135,12 @@ export default function CreatePostPage() {
                                             <div className="font-bold text-sm">你的自媒体账号</div>
                                         </div>
                                         <div className="flex-1 bg-slate-50 rounded-lg flex items-center justify-center border-dashed border-2 border-slate-200 mb-4">
-                                            {/* Image placeholder */}
                                             <p className="text-xs text-slate-400">图片预览区域</p>
                                         </div>
                                         <div className="space-y-2 max-h-[150px] overflow-hidden">
-                                            <p className="text-sm font-bold">笔记标题预览</p>
+                                            <p className="text-sm font-bold">{t.create.preview.xhsTitle}</p>
                                             <p className="text-xs text-slate-600 whitespace-pre-wrap">
-                                                {content || "此处展示你的笔记正文预览..."}
+                                                {content || t.create.preview.xhsBody}
                                             </p>
                                         </div>
                                         <div className="mt-auto pt-4 border-t flex justify-between text-slate-400">
@@ -161,7 +160,7 @@ export default function CreatePostPage() {
                                         <div className="space-y-2">
                                             <p className="font-bold">@你的自媒体账号</p>
                                             <p className="text-sm line-clamp-3 whitespace-pre-wrap">
-                                                {content || "此处展示你的短视频描述预览..."}
+                                                {content || t.create.preview.dyBody}
                                             </p>
                                             <div className="flex gap-2">
                                                 <span className="text-xs px-2 py-1 bg-white/20 rounded">#自媒体</span>
@@ -169,7 +168,6 @@ export default function CreatePostPage() {
                                             </div>
                                         </div>
                                     </div>
-                                    {/* Fake UI icons */}
                                     <div className="absolute right-4 bottom-32 flex flex-col gap-6 items-center">
                                         <div className="w-12 h-12 rounded-full bg-slate-500 border-2 border-white" />
                                         <div className="flex flex-col items-center"><CheckCircle2 className="h-8 w-8 text-red-500 fill-red-500" /><span className="text-[10px]">12.4w</span></div>
@@ -180,7 +178,6 @@ export default function CreatePostPage() {
 
                             <TabsContent value="bilibili" className="w-full focus-visible:ring-0">
                                 <Card className="mx-auto w-full max-w-[500px] border-none shadow-xl bg-white overflow-hidden">
-                                    {/* Bilibili Web Header Simulation */}
                                     <div className="bg-[#fb7299] p-3 flex justify-between items-center text-white">
                                         <span className="font-bold text-sm">Bilibili 视频预览</span>
                                         <div className="flex gap-2 text-[10px]">
@@ -193,7 +190,7 @@ export default function CreatePostPage() {
                                     </div>
                                     <div className="p-4 space-y-3">
                                         <h2 className="text-lg font-bold line-clamp-2">
-                                            {content.split('\n')[0] || "这里是你的视频标题预览..."}
+                                            {content.split('\n')[0] || t.create.preview.biliTitle}
                                         </h2>
                                         <div className="flex items-center gap-2">
                                             <div className="w-6 h-6 rounded-full bg-slate-200" />
@@ -208,7 +205,7 @@ export default function CreatePostPage() {
                                                 <span>2026-02-15</span>
                                             </div>
                                             <p className="whitespace-pre-wrap text-sm leading-relaxed line-clamp-6">
-                                                {content || "这里展示视频简介内容..."}
+                                                {content || t.create.preview.biliBody}
                                             </p>
                                         </div>
                                         <div className="flex justify-around py-2 border-t mt-4 grayscale opacity-50">
@@ -219,7 +216,7 @@ export default function CreatePostPage() {
                                     </div>
                                 </Card>
                             </TabsContent>
-                            2026-02-15
+
                             <TabsContent value="xiaoyuzhou" className="w-full focus-visible:ring-0">
                                 <Card className="mx-auto w-[350px] aspect-[9/19] rounded-[3rem] border-[12px] border-slate-900 shadow-2xl relative overflow-hidden bg-[#f9f7f2]">
                                     <div className="absolute top-0 w-full h-8 flex justify-center items-end pb-1">
@@ -231,8 +228,8 @@ export default function CreatePostPage() {
                                         </div>
                                         <div className="space-y-4">
                                             <div className="space-y-1">
-                                                <h3 className="text-xl font-bold text-[#2d2d2d]">播客节目名称</h3>
-                                                <p className="text-sm text-[#8c8c8c]">你的播客主理人</p>
+                                                <h3 className="text-xl font-bold text-[#2d2d2d]">{t.create.preview.podTitle}</h3>
+                                                <p className="text-sm text-[#8c8c8c]">{t.create.preview.podHost}</p>
                                             </div>
                                             <div className="flex gap-2">
                                                 <span className="bg-[#ede9d8] text-[#5c5a4f] text-[10px] px-2 py-1 rounded">科技</span>
@@ -242,12 +239,10 @@ export default function CreatePostPage() {
                                             <div className="space-y-2">
                                                 <h4 className="font-bold text-sm text-[#2d2d2d]">Show Notes</h4>
                                                 <p className="text-sm text-[#5c5a4f] whitespace-pre-wrap leading-relaxed">
-                                                    {content || "此处展示你的播客节目介绍预览..."}
+                                                    {content || t.create.preview.podDesc}
                                                 </p>
                                             </div>
                                         </div>
-
-                                        {/* Fake Player Control */}
                                         <div className="mt-8 bg-white/50 p-4 rounded-2xl border border-white/80">
                                             <div className="h-1 bg-slate-200 rounded-full overflow-hidden mb-4">
                                                 <div className="h-full w-1/3 bg-orange-400" />
