@@ -1,5 +1,6 @@
 
 import Link from "next/link"
+import { LanguageSwitcher } from "@/components/language-switcher"
 
 interface MarketingLayoutProps {
   children: React.ReactNode
@@ -21,12 +22,13 @@ export default function MarketingLayout({
               </span>
             </Link>
           </div>
-          <nav>
+          <nav className="flex items-center space-x-4">
+            <LanguageSwitcher />
             <Link
               href="/login"
               className="px-4 py-2 text-sm font-medium transition-colors hover:text-foreground/80 text-foreground/60"
             >
-              Login
+              Log In
             </Link>
           </nav>
         </div>
