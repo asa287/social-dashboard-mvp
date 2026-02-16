@@ -18,11 +18,13 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
-      <I18nProvider>
-        <html lang="en">
-          <body className={inter.className}>{children}</body>
-        </html>
-      </I18nProvider>
+      <html lang="en">
+        <body className={inter.className}>
+          <I18nProvider>
+            {children}
+          </I18nProvider>
+        </body>
+      </html>
     </ClerkProvider>
   );
 }

@@ -9,10 +9,10 @@ export function LanguageSwitcher() {
 
     return (
         <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-            className="flex items-center gap-2 text-xs font-semibold"
+            className="flex items-center gap-2 text-xs font-semibold border-primary/20 bg-background shadow-sm hover:bg-accent"
         >
             <Languages className="h-4 w-4" />
             {lang === "zh" ? "EN" : "中文"}
