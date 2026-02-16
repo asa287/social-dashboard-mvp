@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/components/i18n-provider";
 import { polishContent } from "@/app/actions/posts";
+import { toast } from "sonner";
 import {
     Sparkles,
     Send,
@@ -23,23 +24,24 @@ import {
 } from "lucide-react";
 
 export default function CreatePostPage() {
-    const { t } = useI18n();
+    const { t, lang } = useI18n();
     const [content, setContent] = useState("");
     const [isPolishing, setIsPolishing] = useState(false);
 
     const handleAiPolish = async () => {
-        if (!content) return;
+        if (!content.trim()) return;
+
         setIsPolishing(true);
         try {
             const result = await polishContent(content);
             if (result.success && result.polishedContent) {
                 setContent(result.polishedContent);
+                toast.success(lang === "zh" ? "AI 润色成功！" : "AI Polish Successful!");
             } else {
-                console.error("Polish failed:", result.error);
-                alert("AI 润色失败，请检查 API Key 配置");
+                toast.error(result.error || "AI Polish Failed");
             }
         } catch (error) {
-            console.error("AI Polish Error:", error);
+            toast.error("An unexpected error occurred");
         } finally {
             setIsPolishing(false);
         }
