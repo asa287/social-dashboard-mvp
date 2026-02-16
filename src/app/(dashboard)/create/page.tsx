@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/components/i18n-provider";
+import { polishContent } from "@/app/actions/posts";
 import {
     Sparkles,
     Send,
@@ -26,13 +27,22 @@ export default function CreatePostPage() {
     const [content, setContent] = useState("");
     const [isPolishing, setIsPolishing] = useState(false);
 
-    const handleAiPolish = () => {
+    const handleAiPolish = async () => {
+        if (!content) return;
         setIsPolishing(true);
-        // Simulate AI Polish delay
-        setTimeout(() => {
-            setContent(prev => prev + "\n\n#爆款 #内容创作 #自媒体");
+        try {
+            const result = await polishContent(content);
+            if (result.success && result.polishedContent) {
+                setContent(result.polishedContent);
+            } else {
+                console.error("Polish failed:", result.error);
+                alert("AI 润色失败，请检查 API Key 配置");
+            }
+        } catch (error) {
+            console.error("AI Polish Error:", error);
+        } finally {
             setIsPolishing(false);
-        }, 1500);
+        }
     };
 
     return (
