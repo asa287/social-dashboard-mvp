@@ -1,14 +1,11 @@
 
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-const isProtectedRoute = createRouteMatcher(["/dashboard(.*)"]);
-
-// Trigger Vercel rebuild with new env vars
+const isProtectedRoute = createRouteMatcher(["/dashboard(.*)", "/create(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
-    const { userId, redirectToSignIn } = await auth();
-    if (!userId && isProtectedRoute(req)) {
-        return redirectToSignIn();
+    if (isProtectedRoute(req)) {
+        await auth.protect();
     }
 });
 
