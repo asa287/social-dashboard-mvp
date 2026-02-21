@@ -9,18 +9,16 @@ import { useI18n } from "@/components/i18n-provider";
 interface TeleprompterProps {
     content: string;
     onClose: () => void;
+    autoStart?: boolean;
 }
 
-export function Teleprompter({ content, onClose }: TeleprompterProps) {
+export function Teleprompter({ content, onClose, autoStart = true }: TeleprompterProps) {
     const { t, lang } = useI18n();
     const [isActive, setIsActive] = useState(false);
-    const [fontSize, setFontSize] = useState(54);
+    const [fontSize, setFontSize] = useState(50);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
-    const [isGhostMode, setIsGhostMode] = useState(true); // Default to Ghost for v6
-
-    // Hybrid Scroll State
-    const [scrollPosition, setScrollPosition] = useState(0); // in pixels
-    const [adaptiveSpeed, setAdaptiveSpeed] = useState(1.5); // pixels per frame
+    const [isGhostMode, setIsGhostMode] = useState(true);
+    const [hasStartedScrolling, setHasStartedScrolling] = useState(false);
 
     const [pipWindow, setPipWindow] = useState<Window | null>(null);
     const pipRootRef = useRef<HTMLDivElement | null>(null);
@@ -37,24 +35,19 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
 
     const totalChars = words.length;
 
-    // UNIFIED ACTIVATION: Start + PiP
-    const handleStart = async () => {
-        if (isActive) {
-            setIsActive(false);
-            if (pipWindow) pipWindow.close();
-            return;
-        }
-
+    // UNIFIED ACTIVATION LOGIC
+    const triggerStart = async () => {
+        if (isActive) return;
         setIsActive(true);
 
-        // Try to open PiP immediately if supported
         if ('documentPictureInPicture' in window) {
             try {
                 const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                    width: 700,
-                    height: 200, // Thinner, like a caption bar
+                    width: 800,
+                    height: 180,
                 });
 
+                // Copy Styles
                 [...document.styleSheets].forEach((s) => {
                     try {
                         const rules = [...(s as any).cssRules].map(r => r.cssText).join('');
@@ -76,6 +69,7 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                 newPipWindow.document.body.style.margin = '0';
                 newPipWindow.document.body.style.backgroundColor = 'transparent';
                 newPipWindow.document.body.style.overflow = 'hidden';
+                newPipWindow.document.body.style.cursor = 'grab';
 
                 setPipWindow(newPipWindow);
                 pipRootRef.current = root;
@@ -83,19 +77,24 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                 newPipWindow.addEventListener('pagehide', () => {
                     setPipWindow(null);
                     setIsActive(false);
+                    onClose();
                 }, { once: true });
             } catch (err) {
-                console.warn("PiP failed, falling back to modal", err);
+                console.warn("PiP failed", err);
             }
         }
     };
 
-    // SPEECH RECOGNITION (V6 Hybrid Input)
+    // Auto-trigger on mount if autoStart is true
     useEffect(() => {
-        if (!isActive) {
-            setCurrentWordIndex(-1);
-            return;
+        if (autoStart) {
+            triggerStart();
         }
+    }, []);
+
+    // SPEECH RECOGNITION
+    useEffect(() => {
+        if (!isActive) return;
 
         const SpeechRecognition = typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
         if (!SpeechRecognition) return;
@@ -112,7 +111,7 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
             }
             const cleanSpeech = sessionTranscript.replace(/[，。！？、；：“”‘’（）]/g, "").toLowerCase();
 
-            // Search ahead
+            // Match Logic
             const searchWindow = 20;
             let maxMatchIdx = currentWordIndex;
 
@@ -124,6 +123,7 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
             }
 
             if (maxMatchIdx > currentWordIndex) {
+                if (!hasStartedScrolling) setHasStartedScrolling(true);
                 setCurrentWordIndex(maxMatchIdx);
             }
         };
@@ -131,11 +131,11 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         recognition.onend = () => { if (isActive) try { recognition.start(); } catch (e) { } };
         recognition.start();
         return () => { recognition.onend = null; recognition.stop(); };
-    }, [isActive, words, lang, currentWordIndex]);
+    }, [isActive, words, lang, currentWordIndex, hasStartedScrolling]);
 
-    // HYBRID SCROLL ENGINE (Automatic + Adaptive Offset)
-    const animate = (time: number) => {
-        if (!isActive || currentWordIndex === -1) {
+    // HYBRID ADAPTIVE SCROLL ENGINE
+    const animate = () => {
+        if (!isActive || !hasStartedScrolling) {
             requestRef.current = requestAnimationFrame(animate);
             return;
         }
@@ -146,78 +146,62 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
             return;
         }
 
-        // Calculate Target Position
+        // Base scroll speed (pixels per frame)
+        let speed = 0.5;
+
+        // Adaptive speed factor
         const activeElement = container.querySelector(`[data-index="${currentWordIndex}"]`) as HTMLElement;
         if (activeElement) {
             const containerCenter = container.clientHeight / 2;
             const targetPos = activeElement.offsetTop - containerCenter + (activeElement.clientHeight / 2);
+            const diff = targetPos - container.scrollTop;
 
-            // HYBRID ADAPTIVE LOGIC:
-            // Instead of jumping, we move the scroll position smoothly.
-            // If we are far behind the voice, we speed up.
-            const currentScroll = container.scrollTop;
-            const diff = targetPos - currentScroll;
-
-            // PID-lite controller for speed
-            let speedAdjustment = 0;
-            if (diff > 50) speedAdjustment = 2.0; // Catch up fast
-            else if (diff > 0) speedAdjustment = 1.0; // Catch up slowly
-            else if (diff < -20) speedAdjustment = -0.5; // Slow down
-
-            const baseSpeed = 0.8; // Constant drift
-            const finalSpeed = baseSpeed + speedAdjustment;
-
-            container.scrollTop += finalSpeed;
+            if (diff > 100) speed = 2.5; // Far behind
+            else if (diff > 20) speed = 1.2; // Slightly behind
+            else if (diff < -20) speed = 0.2; // Ahead of speech, slow down
         }
 
+        container.scrollTop += speed;
         requestRef.current = requestAnimationFrame(animate);
     };
 
     useEffect(() => {
         requestRef.current = requestAnimationFrame(animate);
-        return () => {
-            if (requestRef.current !== null) {
-                cancelAnimationFrame(requestRef.current);
-            }
-        };
-    }, [isActive, currentWordIndex, pipWindow]);
+        return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
+    }, [isActive, hasStartedScrolling, currentWordIndex, pipWindow]);
 
     const TeleprompterContent = (
-        <div className={`flex flex-col h-full w-full transition-all duration-700 select-none ${isGhostMode ? 'bg-black/40 backdrop-blur-2xl' : 'bg-black'
-            } ${pipWindow ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+        <div className={`flex flex-col h-full w-full transition-all duration-700 select-none overflow-hidden ${isGhostMode ? 'bg-black/30 backdrop-blur-3xl' : 'bg-black'
+            }`}>
+            {/* Native Appearance Grip Handle */}
+            <div className={`h-1.5 flex justify-center items-center py-2 shrink-0 ${pipWindow ? 'opacity-40' : 'hidden'}`}>
+                <div className="w-16 h-1 bg-white/20 rounded-full" />
+            </div>
 
-            {/* Minimal Drag Handle / Header */}
-            <header className={`flex items-center justify-between px-4 py-1.5 transition-all duration-500 border-b border-white/5 ${isActive && pipWindow ? 'h-0 py-0 opacity-0 overflow-hidden' : ''
-                }`}>
-                <div className="flex items-center gap-2">
-                    <GripVertical className="h-3 w-3 text-zinc-600" />
-                    <span className="text-[8px] font-bold tracking-[0.4em] uppercase text-zinc-500">FLOAT V6</span>
-                </div>
+            {/* Standard Header (only in modal view or when hovered in PiP) */}
+            {!pipWindow && (
+                <header className="flex items-center justify-between px-4 py-1.5 border-b border-white/5 shrink-0 bg-zinc-900/40">
+                    <div className="flex items-center gap-2">
+                        <Zap className={`h-3 w-3 ${isActive ? 'text-green-400' : 'text-zinc-600'}`} />
+                        <span className="text-[8px] font-bold tracking-[0.4em] uppercase text-zinc-500">PROMPTER V6.1</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-red-500" onClick={onClose}>
+                            <X className="h-3 w-3" />
+                        </Button>
+                    </div>
+                </header>
+            )}
 
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="ghost" size="sm"
-                        className={`h-6 px-2 text-[8px] font-bold rounded-full border ${isGhostMode ? 'text-green-400 border-green-500/30 bg-green-500/5' : 'text-zinc-500 border-zinc-800'
-                            }`}
-                        onClick={() => setIsGhostMode(!isGhostMode)}
-                    >
-                        {isGhostMode ? "TRANSPARENT" : "OPAQUE"}
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-red-500" onClick={onClose}>
-                        <X className="h-3 w-3" />
-                    </Button>
-                </div>
-            </header>
-
-            {/* Scrollable Area */}
+            {/* Scrolling Viewport */}
             <div
                 ref={scrollContainerRef}
-                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[30vh] pb-[60vh] px-8"
+                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[40vh] pb-[60vh] px-12"
             >
                 <div className="max-w-4xl mx-auto">
                     <div
-                        className="leading-[1.6] text-center flex flex-wrap justify-center gap-x-3 gap-y-1 font-bold transition-all duration-500"
-                        style={{ fontSize: `${pipWindow ? (fontSize * 0.8) : fontSize}px` }}
+                        className="leading-[1.6] text-center flex flex-wrap justify-center gap-x-4 gap-y-2 font-black transition-all duration-500"
+                        style={{ fontSize: `${pipWindow ? (fontSize * 0.7) : fontSize}px` }}
                     >
                         {words.map((word, i) => {
                             const isCurrent = i === currentWordIndex;
@@ -227,16 +211,16 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                                 <span
                                     key={i}
                                     data-index={i}
-                                    className={`transition-all duration-700 rounded-md px-1.5 ${isCurrent
-                                        ? "text-green-400 scale-110 translate-y-[-2px] drop-shadow-[0_0_15px_rgba(74,222,128,0.4)]"
-                                        : isPast
-                                            ? "text-white/10"
-                                            : "text-white/40"
+                                    className={`transition-all duration-500 rounded-md px-1 relative ${isCurrent
+                                            ? "text-green-400 scale-110 drop-shadow-[0_0_20px_rgba(74,222,128,0.5)] z-20"
+                                            : isPast
+                                                ? "text-white/10"
+                                                : "text-white/40"
                                         }`}
                                 >
                                     {word}
                                     {isCurrent && (
-                                        <div className="absolute -bottom-1 left-0 right-0 h-1 bg-green-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+                                        <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-green-500/80 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
                                     )}
                                 </span>
                             );
@@ -245,38 +229,12 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                 </div>
             </div>
 
-            {/* Ghost Dock (Only show when not active or not in PiP) */}
-            {(!isActive || !pipWindow) && (
-                <footer className="shrink-0 p-6 bg-black/20 backdrop-blur-xl border-t border-white/5 flex flex-col items-center gap-6">
-                    <div className="flex items-center gap-12 w-full max-w-xl">
-                        <Button
-                            size="lg"
-                            className={`rounded-full h-14 w-14 transition-all duration-500 shadow-2xl ${isActive ? "bg-red-500 shadow-red-500/20" : "bg-green-600 shadow-green-500/20"
-                                }`}
-                            onClick={handleStart}
-                        >
-                            {isActive ? <Square className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 ml-1 text-white" />}
-                        </Button>
-
-                        <div className="flex-1 space-y-2">
-                            <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                                <label>Zoom</label>
-                                <span className="text-green-500">{fontSize}px</span>
-                            </div>
-                            <input
-                                type="range" min="40" max="150" value={fontSize}
-                                onChange={(e) => setFontSize(parseInt(e.target.value))}
-                                className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                            />
-                        </div>
-                    </div>
-                </footer>
-            )}
-
-            {/* Status indicator in PiP mode when active */}
-            {isActive && pipWindow && (
-                <div className="absolute top-2 right-2 pointer-events-none transition-opacity duration-1000 opacity-20">
-                    <div className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+            {/* Floating Hint Overlay */}
+            {!hasStartedScrolling && isActive && (
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center animate-pulse">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-green-500/60 font-medium">
+                        Waiting for voice...
+                    </p>
                 </div>
             )}
         </div>
@@ -284,14 +242,11 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
 
     return (
         <>
-            {/* Main Overlay (Used for setup/fallback) */}
             {!pipWindow && (
                 <div className="fixed inset-0 z-[100] flex animate-in fade-in duration-500">
                     {TeleprompterContent}
                 </div>
             )}
-
-            {/* Floating Portal */}
             {pipWindow && pipRootRef.current && createPortal(
                 TeleprompterContent,
                 pipRootRef.current
