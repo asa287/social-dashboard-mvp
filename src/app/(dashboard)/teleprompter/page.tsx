@@ -93,7 +93,6 @@ export default function TeleprompterPage() {
                 <Teleprompter
                     content={content}
                     onClose={() => setShowTeleprompter(false)}
-                    autoPip={true}
                 />
             )}
         </div>
