@@ -15,21 +15,22 @@ export default function TeleprompterPage() {
     const [pipWindow, setPipWindow] = useState<Window | null>(null);
 
     const handleStart = async () => {
-        if (!content.trim()) return;
-
-        // Instant PiP Launch on Start
-        if ('documentPictureInPicture' in window) {
-            try {
-                const win = await (window as any).documentPictureInPicture.requestWindow({
-                    width: 600,
-                    height: 450,
-                });
-                setPipWindow(win);
-            } catch (err) {
-                console.error("PiP failed, using standard modal", err);
-            }
+        if (!('documentPictureInPicture' in window)) {
+            setShowTeleprompter(true);
+            return;
         }
-        setShowTeleprompter(true);
+
+        try {
+            const pip = await (window as any).documentPictureInPicture.requestWindow({
+                width: 600,
+                height: 450,
+            });
+            setPipWindow(pip);
+            setShowTeleprompter(true);
+        } catch (err) {
+            console.error("PiP failed, falling back to modal", err);
+            setShowTeleprompter(true);
+        }
     };
 
     return (
@@ -111,7 +112,10 @@ export default function TeleprompterPage() {
             {showTeleprompter && (
                 <Teleprompter
                     content={content}
-                    onClose={() => setShowTeleprompter(false)}
+                    onClose={() => {
+                        setShowTeleprompter(false)
+                        setPipWindow(null)
+                    }}
                     externalPipWindow={pipWindow}
                 />
             )}
