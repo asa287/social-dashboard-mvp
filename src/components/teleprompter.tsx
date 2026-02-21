@@ -25,7 +25,7 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
     const [pipWindow, setPipWindow] = useState<Window | null>(null);
     const pipRootRef = useRef<HTMLDivElement | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const requestRef = useRef<number>();
+    const requestRef = useRef<number | null>(null);
 
     // Segmentation
     const words = useMemo(() => {
@@ -175,7 +175,11 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
 
     useEffect(() => {
         requestRef.current = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(requestRef.current!);
+        return () => {
+            if (requestRef.current !== null) {
+                cancelAnimationFrame(requestRef.current);
+            }
+        };
     }, [isActive, currentWordIndex, pipWindow]);
 
     const TeleprompterContent = (
@@ -224,10 +228,10 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                                     key={i}
                                     data-index={i}
                                     className={`transition-all duration-700 rounded-md px-1.5 ${isCurrent
-                                            ? "text-green-400 scale-110 translate-y-[-2px] drop-shadow-[0_0_15px_rgba(74,222,128,0.4)]"
-                                            : isPast
-                                                ? "text-white/10"
-                                                : "text-white/40"
+                                        ? "text-green-400 scale-110 translate-y-[-2px] drop-shadow-[0_0_15px_rgba(74,222,128,0.4)]"
+                                        : isPast
+                                            ? "text-white/10"
+                                            : "text-white/40"
                                         }`}
                                 >
                                     {word}
