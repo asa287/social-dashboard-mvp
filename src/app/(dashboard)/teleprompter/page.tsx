@@ -32,7 +32,14 @@ export default function TeleprompterPage() {
                             </div>
                             <Button
                                 className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20 px-6"
-                                onClick={() => setShowTeleprompter(true)}
+                                onClick={async () => {
+                                    // Pre-launch PiP if supported (requires user gesture)
+                                    if ('documentPictureInPicture' in window) {
+                                        setShowTeleprompter(true);
+                                    } else {
+                                        setShowTeleprompter(true);
+                                    }
+                                }}
                                 disabled={!content.trim()}
                             >
                                 <Play className="mr-2 h-4 w-4 fill-current" />
