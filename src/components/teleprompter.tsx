@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, MonitorPlay, Settings, X, Play, Square, Video } from "lucide-react";
+import { Mic, MonitorPlay, Settings, X, Play, Square, Video, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -13,19 +13,23 @@ interface TeleprompterProps {
 export function Teleprompter({ content, onClose }: TeleprompterProps) {
     const { t, lang } = useI18n();
     const [isActive, setIsActive] = useState(false);
-    const [fontSize, setFontSize] = useState(32);
+    const [fontSize, setFontSize] = useState(36);
     const [speed, setSpeed] = useState(5);
     const [words, setWords] = useState<string[]>([]);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    // Phrase-based matching parameters
+    const WINDOW_SIZE = 4; // Look ahead 4 words/chars to find a match
+
     useEffect(() => {
-        // Split content into words/chars for highlighting
         if (lang === "zh") {
-            // In Chinese, we often highlight character by character or use a segmenter
+            // Segmenting Chinese into reasonable "chunks"
+            // For a simple version, we can treat 2-4 chars as a "phrase unit" 
+            // but even char-by-char is okay if the matching logic is phrase-based.
             setWords(content.replace(/\s+/g, "").split(""));
         } else {
-            setWords(content.split(/\s+/));
+            setWords(content.split(/\s+/).filter(w => w.length > 0));
         }
     }, [content, lang]);
 
@@ -35,12 +39,9 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
             return;
         }
 
-        // Web Speech API Integration
         const SpeechRecognition = typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
         if (!SpeechRecognition) {
-            console.warn("Speech recognition not supported in this browser.");
-            // Fallback: simpler auto-scroll logic
             const interval = setInterval(() => {
                 setCurrentWordIndex(prev => (prev < words.length - 1 ? prev + 1 : prev));
             }, 1000 / (speed / 2));
@@ -53,39 +54,44 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         recognition.lang = lang === "zh" ? "zh-CN" : "en-US";
 
         recognition.onresult = (event: any) => {
-            const transcript = Array.from(event.results)
-                .map((result: any) => result[0])
-                .map((result: any) => result.transcript)
-                .join("")
-                .toLowerCase();
+            const lastResult = event.results[event.results.length - 1];
+            const transcript = lastResult[0].transcript.toLowerCase();
 
-            // Simple heuristic for word tracking
-            // We look for the next word in the text that appears in the transcript
-            let bestMatch = currentWordIndex;
+            // PHRASE-BASED MATCHING LOGIC (Killer Feature Logic)
+            // Instead of just checking the 'transcript', we check if the next 'WINDOW_SIZE' 
+            // words in our script appear in the transcript.
+
+            let foundIndex = -1;
             for (let i = currentWordIndex + 1; i < Math.min(currentWordIndex + 10, words.length); i++) {
-                if (transcript.includes(words[i].toLowerCase())) {
-                    bestMatch = i;
+                // Construct a small phrase from the script to match against
+                const scriptChunk = words.slice(i, i + 3).join("").toLowerCase();
+                if (transcript.includes(scriptChunk) || transcript.includes(words[i].toLowerCase())) {
+                    foundIndex = i;
+                    // We don't break immediately; we want the furthest match in this small window
                 }
             }
 
-            if (bestMatch !== currentWordIndex) {
-                setCurrentWordIndex(bestMatch);
+            if (foundIndex !== -1) {
+                setCurrentWordIndex(foundIndex);
             }
         };
 
         recognition.onerror = (event: any) => {
             console.error("Speech Recognition Error", event.error);
-            setIsActive(false);
+        };
+
+        recognition.onend = () => {
+            // Keep it alive if still active
+            if (isActive) recognition.start();
         };
 
         recognition.start();
-
         return () => {
+            recognition.onend = null;
             recognition.stop();
         };
     }, [isActive, words, lang, speed, currentWordIndex]);
 
-    // Auto-scroll the active word into view safely
     useEffect(() => {
         if (currentWordIndex !== -1 && containerRef.current) {
             const activeElement = containerRef.current.querySelector(`[data-index="${currentWordIndex}"]`);
@@ -96,65 +102,50 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
     }, [currentWordIndex]);
 
     const handlePip = async () => {
-        // Picture-in-Picture for a DOM element is still experimental via Document PiP API
-        // For now, we'll alert the user about the strategy (PM Storytelling)
-        alert(lang === "zh" ? "画中画模式正通过 Document PiP API 接入中，可在录屏时置顶显示。" : "PiP mode is being integrated via Document PiP API for top-level overlay during recording.");
+        alert(lang === "zh" ? "画中画模式正通过 Document PiP API 接入中..." : "PiP mode is being integrated...");
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-black text-white p-6 md:p-12 font-sans overflow-hidden">
-            {/* Header */}
-            <header className="flex items-center justify-between mb-8 shrink-0">
-                <div className="flex items-center gap-4">
-                    <div className="bg-green-500/20 p-2 rounded-lg">
-                        <Video className="h-6 w-6 text-green-500 animate-pulse" />
-                    </div>
-                    <div>
-                        <h2 className="text-xl font-bold tracking-tight">{t.create.teleprompter.title}</h2>
-                        <p className="text-xs text-zinc-500 font-medium uppercase tracking-widest">{isActive ? "LIVE TRACKING" : "STANDBY"}</p>
-                    </div>
-                </div>
+        <div className="fixed inset-0 z-[100] flex flex-col bg-black text-white font-sans overflow-hidden">
+            {/* Minimal Header */}
+            <header className="flex items-center justify-between px-6 py-4 bg-zinc-900/50 border-b border-white/5 shrink-0">
                 <div className="flex items-center gap-3">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-white/10 bg-white/5 hover:bg-white/20 text-white"
-                        onClick={handlePip}
-                    >
-                        <MonitorPlay className="h-4 w-4 mr-2" />
-                        {t.create.teleprompter.pip}
+                    <Video className={`h-5 w-5 ${isActive ? "text-red-500 animate-pulse" : "text-zinc-500"}`} />
+                    <span className="text-sm font-bold tracking-tight">{t.create.teleprompter.title}</span>
+                </div>
+
+                {/* Subtle Hint */}
+                <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
+                    <Info className="h-3 w-3 text-blue-400" />
+                    <span className="text-[10px] text-zinc-400 font-medium">{t.create.teleprompter.eyeContactHint}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-white" onClick={handlePip}>
+                        <MonitorPlay className="h-4 w-4" />
                     </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="hover:bg-red-500/20 hover:text-red-500 text-zinc-400"
-                        onClick={onClose}
-                    >
-                        <X className="h-6 w-6" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-red-500" onClick={onClose}>
+                        <X className="h-5 w-5" />
                     </Button>
                 </div>
             </header>
 
-            {/* Display Area */}
+            {/* Content Area - Bigger and starts higher up */}
             <div
                 ref={containerRef}
-                className="flex-1 overflow-y-auto scrollbar-hide py-20 px-4 md:px-20"
+                className="flex-1 overflow-y-auto scrollbar-hide pt-10 pb-40 px-6 md:px-24 lg:px-48"
             >
                 <div className="max-w-4xl mx-auto">
-                    <p className="text-center text-xs text-zinc-500 mb-12 font-medium bg-zinc-900/50 py-2 rounded-full inline-block px-4 left-1/2 -translate-x-1/2 relative">
-                        {t.create.teleprompter.eyeContactHint}
-                    </p>
-
-                    <div className="leading-[1.6] text-center select-none flex flex-wrap justify-center gap-x-1" style={{ fontSize: `${fontSize}px` }}>
+                    <div className="leading-[1.4] text-center select-none flex flex-wrap justify-center gap-x-2" style={{ fontSize: `${fontSize}px` }}>
                         {words.map((word, i) => (
                             <span
                                 key={i}
                                 data-index={i}
-                                className={`transition-all duration-300 rounded px-1 ${i === currentWordIndex
-                                    ? "text-green-500 font-bold scale-110 bg-green-500/10 shadow-[0_0_20px_rgba(34,197,94,0.3)]"
-                                    : i < currentWordIndex
-                                        ? "text-white/10"
-                                        : "text-white/40"
+                                className={`transition-all duration-200 rounded px-1.5 py-0.5 ${i === currentWordIndex
+                                        ? "text-green-400 font-bold scale-110 bg-green-500/10 shadow-[0_0_30px_rgba(34,197,94,0.4)]"
+                                        : i < currentWordIndex
+                                            ? "text-white/5"
+                                            : "text-white/30"
                                     }`}
                             >
                                 {word}
@@ -164,47 +155,44 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                 </div>
             </div>
 
-            {/* Controls */}
-            <footer className="mt-8 pt-8 border-t border-white/10 shrink-0 flex flex-col items-center gap-8 bg-gradient-to-t from-black via-black to-transparent">
-                <div className="flex flex-col items-center gap-3">
-                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">{t.create.teleprompter.voiceSync}</span>
-                    <Button
-                        size="lg"
-                        className={`rounded-full h-20 w-20 shadow-2xl transition-all duration-300 ${isActive
-                            ? "bg-red-500 hover:bg-red-600 scale-110 shadow-red-500/20"
-                            : "bg-green-500 hover:bg-green-600 shadow-green-500/20"
-                            }`}
-                        onClick={() => setIsActive(!isActive)}
-                    >
-                        {isActive ? <Square className="h-8 w-8 text-white" /> : <Play className="h-8 w-8 ml-1 text-white" />}
-                    </Button>
-                </div>
+            {/* Bottom Floating Controls */}
+            <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/90 to-transparent flex flex-col items-center gap-6">
+                <Button
+                    size="lg"
+                    className={`rounded-full h-16 w-16 shadow-2xl transition-all duration-300 ${isActive
+                            ? "bg-red-500 hover:bg-red-600 shadow-red-500/40"
+                            : "bg-green-500 hover:bg-green-600 shadow-green-500/40"
+                        }`}
+                    onClick={() => setIsActive(!isActive)}
+                >
+                    {isActive ? <Square className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 ml-1 text-white" />}
+                </Button>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-2xl mb-8">
-                    <div className="space-y-3">
-                        <div className="flex justify-between text-[11px] font-bold text-zinc-500 uppercase">
+                <div className="flex gap-12 w-full max-w-xl">
+                    <div className="flex-1 space-y-2">
+                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
                             <label>{t.create.teleprompter.fontSize}</label>
-                            <span>{fontSize}px</span>
+                            <span className="text-green-500">{fontSize}px</span>
                         </div>
                         <input
-                            type="range" min="24" max="80" value={fontSize}
+                            type="range" min="20" max="100" value={fontSize}
                             onChange={(e) => setFontSize(parseInt(e.target.value))}
-                            className="w-full accent-green-500 bg-zinc-800 rounded-lg h-1 appearance-none cursor-pointer"
+                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
                         />
                     </div>
-                    <div className="space-y-3">
-                        <div className="flex justify-between text-[11px] font-bold text-zinc-500 uppercase">
+                    <div className="flex-1 space-y-2">
+                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
                             <label>{t.create.teleprompter.speed}</label>
-                            <span>{speed}x</span>
+                            <span className="text-green-500">{speed}x</span>
                         </div>
                         <input
                             type="range" min="1" max="10" value={speed}
                             onChange={(e) => setSpeed(parseInt(e.target.value))}
-                            className="w-full accent-green-500 bg-zinc-800 rounded-lg h-1 appearance-none cursor-pointer"
+                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
                         />
                     </div>
                 </div>
-            </footer>
+            </div>
         </div>
     );
 }

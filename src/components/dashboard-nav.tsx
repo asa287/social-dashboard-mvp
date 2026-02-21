@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useI18n } from "@/components/i18n-provider"
 // import { Icons } from "@/components/icons" 
-import { BarChart3, FileText, Settings, LayoutDashboard } from "lucide-react"
+import { BarChart3, FileText, Settings, LayoutDashboard, Mic } from "lucide-react"
 
 export function DashboardNav() {
     const pathname = usePathname()
@@ -23,6 +23,11 @@ export function DashboardNav() {
             title: t.nav.create,
             href: "/create",
             icon: FileText,
+        },
+        {
+            title: t.create.teleprompter.title,
+            href: "/teleprompter",
+            icon: Mic,
         },
         {
             title: "Analytics",
