@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/components/i18n-provider";
 import { polishContent } from "@/app/actions/posts";
 import { toast } from "sonner";
+import { Teleprompter } from "@/components/teleprompter";
 import {
     Sparkles,
     Send,
@@ -20,13 +21,15 @@ import {
     Mic,
     Image as ImageIcon,
     CheckCircle2,
-    AlertCircle
+    AlertCircle,
+    Video
 } from "lucide-react";
 
 export default function CreatePostPage() {
     const { t, lang } = useI18n();
     const [content, setContent] = useState("");
     const [isPolishing, setIsPolishing] = useState(false);
+    const [showTeleprompter, setShowTeleprompter] = useState(false);
 
     const handleAiPolish = async () => {
         if (!content.trim()) return;
@@ -71,16 +74,28 @@ export default function CreatePostPage() {
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <Label htmlFor="content" className="text-lg font-semibold">{t.create.editorTitle}</Label>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={handleAiPolish}
-                                        disabled={isPolishing || !content}
-                                        className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                                    >
-                                        <Sparkles className={`mr-2 h-4 w-4 ${isPolishing ? "animate-spin" : ""}`} />
-                                        {isPolishing ? t.create.aiPolishing : t.create.aiPolish}
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setShowTeleprompter(true)}
+                                            disabled={!content}
+                                            className="text-zinc-600 hover:text-green-600 hover:bg-green-50"
+                                        >
+                                            <Mic className="mr-2 h-4 w-4" />
+                                            {t.create.teleprompter.title}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={handleAiPolish}
+                                            disabled={isPolishing || !content}
+                                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                                        >
+                                            <Sparkles className={`mr-2 h-4 w-4 ${isPolishing ? "animate-spin" : ""}`} />
+                                            {isPolishing ? t.create.aiPolishing : t.create.aiPolish}
+                                        </Button>
+                                    </div>
                                 </div>
                                 <Textarea
                                     id="content"
@@ -274,6 +289,12 @@ export default function CreatePostPage() {
                     </Tabs>
                 </div>
             </div>
+            {showTeleprompter && (
+                <Teleprompter
+                    content={content}
+                    onClose={() => setShowTeleprompter(false)}
+                />
+            )}
         </div>
     );
 }
