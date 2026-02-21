@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Mic, MonitorPlay, Settings, X, Play, Square, Video, Info, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
@@ -15,22 +16,21 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
     const [isActive, setIsActive] = useState(false);
     const [fontSize, setFontSize] = useState(40);
     const [speed, setSpeed] = useState(5);
-    const [words, setWords] = useState<string[]>([]);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [isPipOpen, setIsPipOpen] = useState(false);
 
-    // Phrase segmentation and initialization
-    useEffect(() => {
+    const [pipWindow, setPipWindow] = useState<Window | null>(null);
+    const pipRootRef = useRef<HTMLDivElement | null>(null);
+
+    // Phrase segmentation (Stable mapping to the rendered characters)
+    const words = useMemo(() => {
         if (lang === "zh") {
-            // Split by characters for fine-grained tracking, but we match by phrases
-            setWords(content.replace(/\s+/g, "").split(""));
-        } else {
-            setWords(content.split(/\s+/).filter(w => w.length > 0));
+            // Split into characters but preserve their original identity for matching
+            return content.replace(/\s+/g, "").split("");
         }
+        return content.split(/\s+/).filter(w => w.length > 0);
     }, [content, lang]);
 
-    // Robust Voice Matching logic
+    // Robust Voice Matching logic (Hyper-accurate for Chinese)
     useEffect(() => {
         if (!isActive) {
             setCurrentWordIndex(-1);
@@ -47,30 +47,41 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         recognition.lang = lang === "zh" ? "zh-CN" : "en-US";
 
         recognition.onresult = (event: any) => {
-            const lastResult = event.results[event.results.length - 1];
-            const transcript = lastResult[0].transcript.toLowerCase();
+            // 1. Collect the most recent segment of speech
+            let recentTranscript = "";
+            const historySize = 3; // Look at last 3 result segments for continuity
+            for (let i = Math.max(0, event.results.length - historySize); i < event.results.length; i++) {
+                recentTranscript += event.results[i][0].transcript;
+            }
 
-            // FUZZY SLIDING WINDOW MATCHING (V3 improvements)
-            // Look ahead to find the best match.
-            // We search in a window of 15 tokens ahead of current position.
-            const searchWindow = 15;
-            let bestMatchIndex = -1;
+            // 2. Clean transcript (remove punctuation)
+            const cleanSpeech = recentTranscript.replace(/[，。！？、；：“”‘’（）]/g, "").toLowerCase();
 
-            for (let i = currentWordIndex + 1; i < Math.min(currentWordIndex + searchWindow, words.length); i++) {
-                const word = words[i].toLowerCase();
-                // If the word or a chunk including the word is found in the transcript
-                if (transcript.includes(word)) {
-                    bestMatchIndex = i;
+            // 3. Sliding window search ahead in the script
+            const searchRange = 12; // Search depth 
+            let maxMatchIdx = -1;
+
+            for (let i = currentWordIndex + 1; i < Math.min(currentWordIndex + searchRange, words.length); i++) {
+                // For Chinese, we match either a 2-char phrase OR a single char if the context is strong
+                const char = words[i].toLowerCase();
+                const nextChar = i + 1 < words.length ? words[i + 1].toLowerCase() : "";
+                const phrase = char + nextChar;
+
+                if ((phrase.length > 1 && cleanSpeech.includes(phrase)) || cleanSpeech.endsWith(char)) {
+                    maxMatchIdx = i;
                 }
             }
 
-            if (bestMatchIndex !== -1) {
-                setCurrentWordIndex(bestMatchIndex);
+            if (maxMatchIdx !== -1) {
+                // Update to the latest match
+                setCurrentWordIndex(maxMatchIdx);
             }
         };
 
         recognition.onend = () => {
-            if (isActive) recognition.start();
+            if (isActive) {
+                try { recognition.start(); } catch (e) { }
+            };
         };
 
         recognition.start();
@@ -80,100 +91,102 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         };
     }, [isActive, words, lang, currentWordIndex]);
 
-    // Smoother Scrolling
+    // Smoother Scrolling - Centered on highlight
     useEffect(() => {
-        if (currentWordIndex !== -1 && containerRef.current) {
-            const activeElement = containerRef.current.querySelector(`[data-index="${currentWordIndex}"]`);
-            if (activeElement) {
-                activeElement.scrollIntoView({
-                    behavior: "smooth",
-                    block: "center"
-                });
+        const scrollToActive = () => {
+            // Find container in standard view or PiP portal
+            const container = pipWindow ? pipRootRef.current?.querySelector('.scroll-container') : document.querySelector('.main-tele-container');
+            if (currentWordIndex !== -1 && container) {
+                const activeElement = container.querySelector(`[data-index="${currentWordIndex}"]`);
+                if (activeElement) {
+                    activeElement.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center"
+                    });
+                }
             }
-        }
-    }, [currentWordIndex]);
+        };
+        scrollToActive();
+    }, [currentWordIndex, pipWindow]);
 
-    // REAL Document Picture-in-Picture Logic
+    // Pic-in-Pic via React Portal
     const handlePip = async () => {
         if (!('documentPictureInPicture' in window)) {
-            alert(lang === "zh" ? "您的浏览器不支持 Document PiP 功能，请使用 Chrome/Edge 最新版。" : "Your browser doesn't support Document PiP.");
+            alert(lang === "zh" ? "您的浏览器不支持 Document PiP。" : "Your browser doesn't support Document PiP.");
             return;
         }
 
         try {
-            const pipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                width: 500,
-                height: 400,
+            const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
+                width: 600,
+                height: 450,
             });
 
-            // Copy styles from the main document to the PiP window
-            const allStyles = Array.from(document.styleSheets);
-            allStyles.forEach((styleSheet) => {
+            // Copy CSS
+            [...document.styleSheets].forEach((styleSheet) => {
                 try {
-                    if (styleSheet.cssRules) {
-                        const newStyle = pipWindow.document.createElement('style');
-                        Array.from(styleSheet.cssRules).forEach((rule) => {
-                            newStyle.appendChild(pipWindow.document.createTextNode(rule.cssText));
-                        });
-                        pipWindow.document.head.appendChild(newStyle);
-                    } else if (styleSheet.href) {
-                        const newLink = pipWindow.document.createElement('link');
-                        newLink.rel = 'stylesheet';
-                        newLink.href = styleSheet.href;
-                        pipWindow.document.head.appendChild(newLink);
-                    }
+                    const cssRules = [...(styleSheet as any).cssRules].map((rule) => rule.cssText).join('');
+                    const style = newPipWindow.document.createElement('style');
+                    style.textContent = cssRules;
+                    newPipWindow.document.head.appendChild(style);
                 } catch (e) {
-                    console.warn('Skipped a stylesheet due to CORS or other issues');
+                    if (styleSheet.href) {
+                        const link = newPipWindow.document.createElement('link');
+                        link.rel = 'stylesheet';
+                        link.href = styleSheet.href;
+                        newPipWindow.document.head.appendChild(link);
+                    }
                 }
             });
 
-            // Move the teleprompter content to the PiP window
-            const root = pipWindow.document.createElement('div');
+            const root = newPipWindow.document.createElement('div');
             root.id = 'pip-root';
-            pipWindow.document.body.appendChild(root);
+            newPipWindow.document.body.appendChild(root);
+            newPipWindow.document.body.style.margin = '0';
+            newPipWindow.document.body.style.backgroundColor = 'black';
 
-            // Note: In a real app, you'd use a Portal or re-render. 
-            // Here we provide instructions to the user about why this is a killer feature.
-            setIsPipOpen(true);
+            setPipWindow(newPipWindow);
+            pipRootRef.current = root;
 
-            pipWindow.addEventListener('pagehide', () => setIsPipOpen(false), { once: true });
+            newPipWindow.addEventListener('pagehide', () => {
+                setPipWindow(null);
+                pipRootRef.current = null;
+            }, { once: true });
         } catch (err) {
             console.error(err);
         }
     };
 
-    return (
-        <div className={`fixed inset-0 z-[100] flex flex-col bg-black text-white font-sans overflow-hidden ${isPipOpen ? 'opacity-50 pointer-events-none' : ''}`}>
-            {/* Immersive Header */}
-            <header className="flex items-center justify-between px-6 py-3 bg-zinc-900/80 border-b border-white/5 backdrop-blur-md shrink-0">
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                        <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-red-500 animate-pulse' : 'bg-zinc-600'}`} />
-                        <span className="text-xs font-bold tracking-widest uppercase">{t.create.teleprompter.title}</span>
-                    </div>
+    const TeleprompterContent = (
+        <div className={`flex flex-col bg-black text-white font-sans overflow-hidden h-full w-full ${pipWindow ? 'fixed inset-0' : ''}`}>
+            {/* Header */}
+            <header className="flex items-center justify-between px-6 py-3 bg-zinc-900/60 border-b border-white/5 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2">
+                    <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-red-500 animate-pulse' : 'bg-zinc-600'}`} />
+                    <span className="text-[10px] font-bold tracking-[0.2em] uppercase">{t.create.teleprompter.title}</span>
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-[10px] font-bold bg-white/5 hover:bg-white/10 text-white border border-white/10 px-3"
-                        onClick={handlePip}
-                    >
-                        <Maximize2 className="h-3 w-3 mr-2 text-blue-400" />
-                        {t.create.teleprompter.pip}
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-white" onClick={onClose}>
+                    {!pipWindow && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-[10px] font-bold bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 px-3"
+                            onClick={handlePip}
+                        >
+                            <Maximize2 className="h-3 w-3 mr-2" />
+                            {t.create.teleprompter.pip}
+                        </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-red-500" onClick={onClose}>
                         <X className="h-5 w-5" />
                     </Button>
                 </div>
             </header>
 
-            {/* Display Area */}
+            {/* Scrolling Viewport */}
             <div
-                ref={containerRef}
-                className="flex-1 overflow-y-auto scrollbar-hide pt-16 pb-48 px-8 md:px-32 lg:px-64"
-                style={{ scrollPaddingTop: '20vh' }}
+                className="scroll-container main-tele-container flex-1 overflow-y-auto scrollbar-hide pt-[25vh] pb-[40vh] px-8 md:px-20 lg:px-40"
             >
                 <div className="max-w-4xl mx-auto">
                     <div className="leading-[1.4] text-center select-none flex flex-wrap justify-center gap-x-2 transition-all duration-300" style={{ fontSize: `${fontSize}px` }}>
@@ -181,11 +194,11 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                             <span
                                 key={i}
                                 data-index={i}
-                                className={`transition-all duration-300 rounded px-1.5 py-0.5 my-1 ${i === currentWordIndex
-                                        ? "text-green-400 font-extrabold scale-110 bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.5)] z-10"
+                                className={`transition-all duration-300 rounded px-1 py-1 ${i === currentWordIndex
+                                        ? "text-green-400 font-extrabold translate-y-[-4px] scale-110 bg-green-500/10 shadow-[0_0_40px_rgba(34,197,94,0.4)] z-10"
                                         : i < currentWordIndex
-                                            ? "text-zinc-800"
-                                            : "text-zinc-500"
+                                            ? "text-zinc-900 border-b border-zinc-800"
+                                            : "text-zinc-600"
                                     }`}
                             >
                                 {word}
@@ -195,71 +208,61 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                 </div>
             </div>
 
-            {/* Hint & Status Overlay */}
-            <div className="absolute top-20 left-1/2 -translate-x-1/2 pointer-events-none text-center">
-                {!isActive && (
-                    <div className="bg-black/60 backdrop-blur-sm border border-white/10 px-4 py-2 rounded-full flex items-center gap-2">
-                        <Info className="h-3 w-3 text-blue-400" />
-                        <span className="text-[10px] font-medium text-zinc-300">{t.create.teleprompter.eyeContactHint}</span>
-                    </div>
-                )}
-            </div>
-
-            {/* Controls */}
-            <footer className="absolute bottom-0 left-0 right-0 p-10 bg-gradient-to-t from-black via-black/95 to-transparent flex flex-col items-center gap-8">
+            {/* Bottom Panel */}
+            <footer className="shrink-0 p-8 bg-black/90 border-t border-white/5 flex flex-col items-center gap-6">
                 <Button
                     size="lg"
-                    className={`rounded-full h-20 w-20 shadow-[0_0_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-500 ${isActive
-                            ? "bg-red-500 hover:bg-red-600 scale-105 shadow-red-500/30"
-                            : "bg-green-600 hover:bg-green-700 shadow-green-500/30"
+                    className={`rounded-full h-16 w-16 shadow-xl transition-all duration-500 ${isActive
+                            ? "bg-red-500 hover:bg-red-600 scale-110 shadow-red-500/20"
+                            : "bg-green-600 hover:bg-green-700 shadow-green-500/20"
                         }`}
                     onClick={() => setIsActive(!isActive)}
                 >
-                    {isActive ? <Square className="h-8 w-8 text-white" /> : <Play className="h-8 w-8 ml-1 text-white" />}
+                    {isActive ? <Square className="h-7 w-7 text-white" /> : <Play className="h-7 w-7 ml-1 text-white" />}
                 </Button>
 
-                <div className="flex gap-16 w-full max-w-2xl px-8">
-                    <div className="flex-1 space-y-3">
-                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
+                <div className="flex gap-12 w-full max-w-xl">
+                    <div className="flex-1 space-y-2">
+                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase">
                             <label>{t.create.teleprompter.fontSize}</label>
-                            <span className="text-green-500 font-mono">{fontSize}px</span>
+                            <span className="text-green-500">{fontSize}px</span>
                         </div>
                         <input
-                            type="range" min="30" max="120" value={fontSize}
+                            type="range" min="30" max="150" value={fontSize}
                             onChange={(e) => setFontSize(parseInt(e.target.value))}
-                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer hover:bg-zinc-700 transition-colors"
+                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
                         />
                     </div>
-                    <div className="flex-1 space-y-3">
-                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
+                    <div className="flex-1 space-y-2">
+                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase">
                             <label>{t.create.teleprompter.speed}</label>
-                            <span className="text-green-500 font-mono">{speed}x</span>
+                            <span className="text-green-500">{speed}x</span>
                         </div>
                         <input
                             type="range" min="1" max="10" value={speed}
                             onChange={(e) => setSpeed(parseInt(e.target.value))}
-                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer hover:bg-zinc-700 transition-colors"
+                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
                         />
                     </div>
                 </div>
             </footer>
+        </div>
+    );
 
-            {isPipOpen && (
-                <div className="fixed inset-0 flex items-center justify-center bg-black/80 z-[110] backdrop-blur-md">
-                    <div className="text-center space-y-6 max-w-md p-8">
-                        <div className="h-16 w-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <Maximize2 className="h-8 w-8 text-blue-400" />
-                        </div>
-                        <h2 className="text-2xl font-bold">提词窗已弹出</h2>
-                        <p className="text-zinc-400 text-sm leading-relaxed">
-                            您现在可以关闭主窗口或将其最小化，提词器将保持在所有窗口最前端显示。
-                        </p>
-                        <Button variant="outline" className="border-white/10 hover:bg-white/5" onClick={() => setIsPipOpen(false)}>
-                            回到主界面
-                        </Button>
-                    </div>
+    return (
+        <>
+            {/* Main Modal */}
+            {!pipWindow && (
+                <div className="fixed inset-0 z-[100] flex">
+                    {TeleprompterContent}
                 </div>
             )}
-        </div>
+
+            {/* PiP Window Content */}
+            {pipWindow && pipRootRef.current && createPortal(
+                TeleprompterContent,
+                pipRootRef.current
+            )}
+        </>
     );
 }
