@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { X, Play, Square, Maximize2, Ghost, Sparkles, Zap, Flame, GripVertical } from "lucide-react";
+import { X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -15,9 +15,8 @@ interface TeleprompterProps {
 export function Teleprompter({ content, onClose, autoStart = true }: TeleprompterProps) {
     const { t, lang } = useI18n();
     const [isActive, setIsActive] = useState(false);
-    const [fontSize, setFontSize] = useState(50);
+    const [fontSize, setFontSize] = useState(48);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
-    const [isGhostMode, setIsGhostMode] = useState(true);
     const [hasStartedScrolling, setHasStartedScrolling] = useState(false);
 
     const [pipWindow, setPipWindow] = useState<Window | null>(null);
@@ -25,7 +24,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const requestRef = useRef<number | null>(null);
 
-    // Segmentation
+    // Segmentation optimized for vertical flow
     const words = useMemo(() => {
         if (lang === "zh") {
             return content.replace(/\s+/g, "").split("");
@@ -33,9 +32,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return content.split(/\s+/).filter(w => w.length > 0);
     }, [content, lang]);
 
-    const totalChars = words.length;
-
-    // UNIFIED ACTIVATION LOGIC
+    // UNIFIED ACTIVATION LOGIC (NATIVE LOOK)
     const triggerStart = async () => {
         if (isActive) return;
         setIsActive(true);
@@ -43,11 +40,11 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         if ('documentPictureInPicture' in window) {
             try {
                 const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                    width: 800,
-                    height: 180,
+                    width: 500,
+                    height: 400, // Vertical orientation
                 });
 
-                // Copy Styles
+                // Copy Styles to ensure native look
                 [...document.styleSheets].forEach((s) => {
                     try {
                         const rules = [...(s as any).cssRules].map(r => r.cssText).join('');
@@ -67,7 +64,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                 root.id = 'pip-root';
                 newPipWindow.document.body.appendChild(root);
                 newPipWindow.document.body.style.margin = '0';
-                newPipWindow.document.body.style.backgroundColor = 'transparent';
+                newPipWindow.document.body.style.backgroundColor = 'black';
                 newPipWindow.document.body.style.overflow = 'hidden';
                 newPipWindow.document.body.style.cursor = 'grab';
 
@@ -85,14 +82,11 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         }
     };
 
-    // Auto-trigger on mount if autoStart is true
     useEffect(() => {
-        if (autoStart) {
-            triggerStart();
-        }
+        if (autoStart) triggerStart();
     }, []);
 
-    // SPEECH RECOGNITION
+    // HYPER-SENSITIVE SPEECH RECOGNITION
     useEffect(() => {
         if (!isActive) return;
 
@@ -133,7 +127,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return () => { recognition.onend = null; recognition.stop(); };
     }, [isActive, words, lang, currentWordIndex, hasStartedScrolling]);
 
-    // HYBRID ADAPTIVE SCROLL ENGINE
+    // VERTICAL HYBRID SCROLL ENGINE (Automatic + Voice Adaptive)
     const animate = () => {
         if (!isActive || !hasStartedScrolling) {
             requestRef.current = requestAnimationFrame(animate);
@@ -146,19 +140,22 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
             return;
         }
 
-        // Base scroll speed (pixels per frame)
-        let speed = 0.5;
+        // 1. Base Drifting Speed (Pixels per frame)
+        // This ensures the content is ALWAYS moving slightly even if speech pauses briefly
+        let speed = 0.6;
 
-        // Adaptive speed factor
+        // 2. Adaptive Speed Multiplier based on current highlit sentence position
         const activeElement = container.querySelector(`[data-index="${currentWordIndex}"]`) as HTMLElement;
         if (activeElement) {
-            const containerCenter = container.clientHeight / 2;
-            const targetPos = activeElement.offsetTop - containerCenter + (activeElement.clientHeight / 2);
-            const diff = targetPos - container.scrollTop;
+            const containerCenter = container.clientHeight / 2.5; // Target is slightly above center
+            const targetPos = activeElement.offsetTop - containerCenter;
+            const currentScroll = container.scrollTop;
+            const diff = targetPos - currentScroll;
 
-            if (diff > 100) speed = 2.5; // Far behind
-            else if (diff > 20) speed = 1.2; // Slightly behind
-            else if (diff < -20) speed = 0.2; // Ahead of speech, slow down
+            // P-Controller Logic for vertical scrolling
+            if (diff > 150) speed = 3.5; // Catch up fast for large jumps
+            else if (diff > 30) speed = 1.8; // Catch up normally
+            else if (diff < -50) speed = 0.1; // Ahead of speech, almost stop
         }
 
         container.scrollTop += speed;
@@ -171,37 +168,30 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
     }, [isActive, hasStartedScrolling, currentWordIndex, pipWindow]);
 
     const TeleprompterContent = (
-        <div className={`flex flex-col h-full w-full transition-all duration-700 select-none overflow-hidden ${isGhostMode ? 'bg-black/30 backdrop-blur-3xl' : 'bg-black'
-            }`}>
-            {/* Native Appearance Grip Handle */}
-            <div className={`h-1.5 flex justify-center items-center py-2 shrink-0 ${pipWindow ? 'opacity-40' : 'hidden'}`}>
-                <div className="w-16 h-1 bg-white/20 rounded-full" />
-            </div>
-
-            {/* Standard Header (only in modal view or when hovered in PiP) */}
-            {!pipWindow && (
-                <header className="flex items-center justify-between px-4 py-1.5 border-b border-white/5 shrink-0 bg-zinc-900/40">
-                    <div className="flex items-center gap-2">
-                        <Zap className={`h-3 w-3 ${isActive ? 'text-green-400' : 'text-zinc-600'}`} />
-                        <span className="text-[8px] font-bold tracking-[0.4em] uppercase text-zinc-500">PROMPTER V6.1</span>
+        <div className="flex flex-col h-full w-full bg-black text-white font-sans overflow-hidden select-none">
+            {/* Minimal Grip Title Bar (Only in stand-alone PiP) */}
+            {pipWindow && (
+                <div className="h-6 flex items-center justify-between px-3 bg-zinc-900/50 border-b border-white/5 shrink-0 opacity-40 hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1.5">
+                        <Zap className="h-2.5 w-2.5 text-green-500" />
+                        <span className="text-[7px] font-bold tracking-[0.3em] uppercase text-zinc-400">TELEPROMPTER WIDGET</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-red-500" onClick={onClose}>
-                            <X className="h-3 w-3" />
-                        </Button>
-                    </div>
-                </header>
+                    <Button variant="ghost" size="icon" className="h-4 w-4 text-zinc-600 hover:text-red-500" onClick={() => pipWindow.close()}>
+                        <X className="h-2.5 w-2.5" />
+                    </Button>
+                </div>
             )}
 
-            {/* Scrolling Viewport */}
+            {/* VERTICAL Scrolling Container */}
             <div
                 ref={scrollContainerRef}
-                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[40vh] pb-[60vh] px-12"
+                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[40vh] pb-[60vh] px-10"
+                style={{ scrollBehavior: 'auto' }}
             >
-                <div className="max-w-4xl mx-auto">
+                <div className="max-w-xl mx-auto">
                     <div
-                        className="leading-[1.6] text-center flex flex-wrap justify-center gap-x-4 gap-y-2 font-black transition-all duration-500"
-                        style={{ fontSize: `${pipWindow ? (fontSize * 0.7) : fontSize}px` }}
+                        className="text-center font-black leading-[1.6] flex flex-wrap justify-center gap-x-4 gap-y-3"
+                        style={{ fontSize: `${fontSize}px` }}
                     >
                         {words.map((word, i) => {
                             const isCurrent = i === currentWordIndex;
@@ -211,16 +201,16 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                                 <span
                                     key={i}
                                     data-index={i}
-                                    className={`transition-all duration-500 rounded-md px-1 relative ${isCurrent
-                                            ? "text-green-400 scale-110 drop-shadow-[0_0_20px_rgba(74,222,128,0.5)] z-20"
+                                    className={`transition-all duration-700 rounded-lg px-1.5 relative ${isCurrent
+                                            ? "text-green-400 scale-110 translate-y-[-4px] drop-shadow-[0_0_20px_rgba(74,222,128,0.5)] z-20"
                                             : isPast
-                                                ? "text-white/10"
-                                                : "text-white/40"
+                                                ? "text-white/5 opacity-20"
+                                                : "text-white/30"
                                         }`}
                                 >
                                     {word}
                                     {isCurrent && (
-                                        <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-green-500/80 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
+                                        <div className="absolute -bottom-1 left-0 right-0 h-1 bg-green-500/80 rounded-full animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
                                     )}
                                 </span>
                             );
@@ -229,12 +219,25 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                 </div>
             </div>
 
-            {/* Floating Hint Overlay */}
-            {!hasStartedScrolling && isActive && (
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center animate-pulse">
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-green-500/60 font-medium">
-                        Waiting for voice...
-                    </p>
+            {/* Setup View (Only in Main Browser Tab) */}
+            {!pipWindow && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-10 transition-opacity">
+                    <div className="text-center space-y-6 max-w-sm p-8 bg-zinc-900/80 rounded-2xl border border-white/5">
+                        <div className="h-12 w-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <Zap className="h-6 w-6 text-green-500" />
+                        </div>
+                        <h2 className="text-xl font-bold">提词浮窗已激活</h2>
+                        <p className="text-zinc-400 text-xs leading-relaxed">
+                            独立的提词小部件已在您的桌面弹出。
+                            <br /><br />
+                            <strong>使用说明：</strong>
+                            1. 在您的录制软件上方拖动该浮窗。
+                            2. 只要您开始说话，文字就会自动垂直翻动。
+                        </p>
+                        <Button variant="outline" className="w-full border-white/10" onClick={onClose}>
+                            关闭并返回
+                        </Button>
+                    </div>
                 </div>
             )}
         </div>
@@ -243,7 +246,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
     return (
         <>
             {!pipWindow && (
-                <div className="fixed inset-0 z-[100] flex animate-in fade-in duration-500">
+                <div className="fixed inset-0 z-[100] flex">
                     {TeleprompterContent}
                 </div>
             )}
