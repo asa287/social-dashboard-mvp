@@ -12,26 +12,6 @@ export default function TeleprompterPage() {
     const { t } = useI18n();
     const [content, setContent] = useState("");
     const [showTeleprompter, setShowTeleprompter] = useState(false);
-    const [pipWindow, setPipWindow] = useState<Window | null>(null);
-
-    const handleStart = async () => {
-        if (!('documentPictureInPicture' in window)) {
-            setShowTeleprompter(true);
-            return;
-        }
-
-        try {
-            const pip = await (window as any).documentPictureInPicture.requestWindow({
-                width: 600,
-                height: 450,
-            });
-            setPipWindow(pip);
-            setShowTeleprompter(true);
-        } catch (err) {
-            console.error("PiP failed, falling back to modal", err);
-            setShowTeleprompter(true);
-        }
-    };
 
     return (
         <div className="flex flex-col space-y-6 p-4 md:p-8">
@@ -52,7 +32,7 @@ export default function TeleprompterPage() {
                             </div>
                             <Button
                                 className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20 px-6"
-                                onClick={handleStart}
+                                onClick={() => setShowTeleprompter(true)}
                                 disabled={!content.trim()}
                             >
                                 <Play className="mr-2 h-4 w-4 fill-current" />
@@ -112,11 +92,8 @@ export default function TeleprompterPage() {
             {showTeleprompter && (
                 <Teleprompter
                     content={content}
-                    onClose={() => {
-                        setShowTeleprompter(false)
-                        setPipWindow(null)
-                    }}
-                    externalPipWindow={pipWindow}
+                    onClose={() => setShowTeleprompter(false)}
+                    autoPip={true}
                 />
             )}
         </div>
