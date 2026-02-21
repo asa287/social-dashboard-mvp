@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Mic, MonitorPlay, Settings, X, Play, Square, Video, Info, Maximize2, Ghost, Sparkles, Zap, Flame } from "lucide-react";
+import { Settings, X, Play, Square, Maximize2, Ghost, Zap, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -14,9 +14,9 @@ interface TeleprompterProps {
 export function Teleprompter({ content, onClose }: TeleprompterProps) {
     const { t, lang } = useI18n();
     const [isActive, setIsActive] = useState(false);
-    const [fontSize, setFontSize] = useState(54);
+    const [fontSize, setFontSize] = useState(48);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
-    const [isGhostMode, setIsGhostMode] = useState(false);
+    const [isGhostMode, setIsGhostMode] = useState(true); // Default to ghost for caption feel
 
     const [pipWindow, setPipWindow] = useState<Window | null>(null);
     const pipRootRef = useRef<HTMLDivElement | null>(null);
@@ -29,9 +29,7 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         return content.split(/\s+/).filter(w => w.length > 0);
     }, [content, lang]);
 
-    const totalChars = words.length;
-
-    // Speech Recognition Logic (V5.2 Precise)
+    // Speech Recognition Logic (Maintained High-Sensitivity V5.2 Logic)
     useEffect(() => {
         if (!isActive) {
             setCurrentWordIndex(-1);
@@ -52,7 +50,6 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
             for (let i = 0; i < event.results.length; i++) {
                 sessionTranscript += event.results[i][0].transcript;
             }
-
             const cleanSpeech = sessionTranscript.replace(/[，。！？、；：“”‘’（）]/g, "").toLowerCase();
 
             const searchWindow = 15;
@@ -83,30 +80,31 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         };
     }, [isActive, words, lang, currentWordIndex]);
 
-    // Centered Scrolling
+    // Horizontal Auto-Scrolling for "Live Caption" Style
     useEffect(() => {
-        const scrollToActive = () => {
+        const scrollActive = () => {
             const container = pipWindow ? pipRootRef.current?.querySelector('.scroll-container') : document.querySelector('.main-tele-container');
             if (currentWordIndex !== -1 && container) {
                 const activeElement = container.querySelector(`[data-index="${currentWordIndex}"]`);
                 if (activeElement) {
                     activeElement.scrollIntoView({
                         behavior: "smooth",
-                        block: "center"
+                        block: "center",
+                        inline: "center" // Key for horizontal centering
                     });
                 }
             }
         };
-        scrollToActive();
+        scrollActive();
     }, [currentWordIndex, pipWindow]);
 
-    // PiP Portal
+    // Doc-PiP for "Live Caption" Window
     const handlePip = async () => {
         if (!('documentPictureInPicture' in window)) return;
         try {
             const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                width: 600,
-                height: 450,
+                width: 700,
+                height: 180, // Slim horizontal bar
             });
 
             [...document.styleSheets].forEach((s) => {
@@ -128,59 +126,37 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
             root.id = 'pip-root';
             newPipWindow.document.body.appendChild(root);
             newPipWindow.document.body.style.margin = '0';
+            newPipWindow.document.body.style.overflow = 'hidden';
             newPipWindow.document.body.style.backgroundColor = 'transparent';
 
             setPipWindow(newPipWindow);
             pipRootRef.current = root;
-
             newPipWindow.addEventListener('pagehide', () => setPipWindow(null), { once: true });
         } catch (err) { console.error(err); }
     };
 
     const TeleprompterContent = (
-        <div className={`flex flex-col h-full w-full transition-all duration-1000 ${isGhostMode ? 'bg-black/10 backdrop-blur-3xl' : 'bg-black'
+        <div className={`relative flex flex-col h-full w-full transition-all duration-500 overflow-hidden ${isGhostMode ? 'bg-zinc-900/90 backdrop-blur-xl' : 'bg-zinc-950'
             } ${pipWindow ? 'fixed inset-0' : ''}`}>
 
-            {/* Header: Auto-fades to be non-intrusive */}
-            <header className={`flex items-center justify-between px-6 py-2 transition-all duration-500 border-b ${isGhostMode ? 'border-white/5 opacity-10 hover:opacity-100' : 'bg-zinc-900/60 border-white/5'
-                } shrink-0`}>
-                <div className="flex items-center gap-2">
-                    <Flame className={`h-3 w-3 ${isActive ? 'text-orange-500 animate-pulse' : 'text-zinc-600'}`} />
-                    <span className="text-[9px] font-bold tracking-[0.4em] uppercase text-zinc-500">LIQUID V5.2</span>
-                </div>
+            {/* System Icons (Mimicking Windows Live Caption UI) */}
+            <div className="absolute top-2 right-2 flex items-center gap-1.5 z-50">
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-white transition-colors">
+                    <Settings className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-red-500 transition-colors" onClick={onClose}>
+                    <X className="h-4 w-4" />
+                </Button>
+            </div>
 
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`h-7 px-3 text-[9px] font-bold rounded-full transition-all border ${isGhostMode ? 'text-green-400 bg-green-400/20 border-green-500/50' : 'text-zinc-500 border-zinc-800'
-                            }`}
-                        onClick={() => setIsGhostMode(!isGhostMode)}
-                    >
-                        {isGhostMode ? "TRANSPARENT ON" : "OPAQUE"}
-                    </Button>
-                    {!pipWindow && (
-                        <Button
-                            variant="ghost" size="sm"
-                            className="h-7 px-3 text-[9px] font-bold bg-white/5 text-blue-400 border border-white/10 rounded-full"
-                            onClick={handlePip}
-                        >
-                            POP-OUT
-                        </Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500 hover:text-red-500" onClick={onClose}>
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
-            </header>
-
-            {/* KTV LYRIC STYLE VIEWPORT */}
-            <div
-                className="scroll-container main-tele-container flex-1 overflow-y-auto scrollbar-hide pt-[40vh] pb-[60vh] px-12"
-            >
-                <div className="max-w-5xl mx-auto">
+            {/* LIVE CAPTION BODY */}
+            <div className="flex-1 flex items-center justify-center relative">
+                {/* Main Caption Viewport: Single Horizontal Line or Slim Paragraph */}
+                <div
+                    className="scroll-container main-tele-container overflow-hidden w-full px-12 text-center"
+                >
                     <div
-                        className="leading-[1.6] text-center select-none flex flex-wrap justify-center gap-x-3 gap-y-2 font-black transition-all duration-500"
+                        className="flex flex-wrap justify-center items-center gap-x-2.5 gap-y-1 select-none font-bold transition-transform duration-500 py-4"
                         style={{ fontSize: `${fontSize}px` }}
                     >
                         {words.map((word, i) => {
@@ -191,69 +167,79 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                                 <span
                                     key={i}
                                     data-index={i}
-                                    className={`transition-all duration-500 rounded-lg px-2 text-center inline-block ${isCurrent
-                                            ? "text-green-400 scale-125 translate-y-[-10%]"
+                                    className={`transition-all duration-300 rounded px-1.5 py-0.5 whitespace-nowrap ${isCurrent
+                                            ? "text-white scale-105"
                                             : isPast
-                                                ? "text-white/5 opacity-20"
-                                                : "text-white/30"
+                                                ? "text-white/20"
+                                                : "text-white/60"
                                         }`}
                                 >
-                                    {/* Glass reflection effect for highlight */}
-                                    {isCurrent && (
-                                        <div className="absolute inset-0 bg-green-400/10 blur-xl scale-125 -z-10 animate-pulse" />
-                                    )}
                                     {word}
-
-                                    {/* Sliding Color Underline (KTV style) */}
-                                    <div className={`h-1.5 mt-2 rounded-full transition-all duration-700 ${isCurrent ? 'bg-green-500 w-full shadow-[0_0_15px_rgba(34,197,94,0.6)]' : 'bg-transparent w-0'
-                                        }`} />
+                                    {isCurrent && (
+                                        <div className="absolute inset-0 bg-blue-500/10 blur-md -z-10 rounded-lg scale-125" />
+                                    )}
                                 </span>
                             );
                         })}
                     </div>
                 </div>
+
+                {/* Status Indicator */}
+                {!isActive && (
+                    <div className="absolute inset-x-0 bottom-3 text-center pointer-events-none">
+                        <span className="text-[10px] text-zinc-500 font-bold tracking-[0.2em] uppercase opacity-50">
+                            {lang === "zh" ? "已准备好语音同步" : "Voice Sync Ready"}
+                        </span>
+                    </div>
+                )}
             </div>
 
-            {/* Ultra-Ghost Footer: Hides during recording */}
-            <footer className={`shrink-0 p-8 transition-all duration-700 ${isGhostMode && isActive ? 'h-0 p-0 opacity-0' : 'bg-black/20 backdrop-blur-2xl border-t border-white/5'
-                } flex flex-col items-center gap-6`}>
-                <div className="flex items-center gap-16 w-full max-w-2xl px-12">
+            {/* QUICK TOOLBAR: Auto-hides when active in PiP */}
+            <div className={`flex items-center justify-between px-6 py-2 border-t border-white/5 bg-black/20 backdrop-blur-sm transition-all duration-500 ${pipWindow && isActive ? 'h-0 py-0 opacity-0 overflow-hidden' : ''
+                }`}>
+                <div className="flex items-center gap-4">
                     <Button
-                        size="lg"
-                        className={`rounded-full h-16 w-16 transition-all duration-500 border-2 ${isActive ? "bg-red-500 border-red-400 shadow-[0_0_30px_rgba(239,68,68,0.4)]" : "bg-green-600 border-green-500 shadow-[0_0_30px_rgba(34,197,94,0.4)]"
+                        size="sm"
+                        variant="ghost"
+                        className={`rounded-full h-8 w-8 p-0 flex items-center justify-center transition-all ${isActive ? "bg-red-500/20 text-red-500" : "bg-green-500/20 text-green-500"
                             }`}
                         onClick={() => setIsActive(!isActive)}
                     >
-                        {isActive ? <Square className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 ml-1 text-white" />}
+                        {isActive ? <Square className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current ml-0.5" />}
                     </Button>
-
-                    <div className="flex-1 space-y-3">
-                        <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                            <label>Adaptive Focus</label>
-                            <span className="text-green-500">{fontSize}px</span>
-                        </div>
-                        <input
-                            type="range" min="40" max="180" value={fontSize}
-                            onChange={(e) => setFontSize(parseInt(e.target.value))}
-                            className="w-full accent-green-500 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
-                        />
+                    <div className="flex items-center gap-1.5">
+                        <Zap className={`h-3 w-3 ${isActive ? 'text-blue-400' : 'text-zinc-600'}`} />
+                        <span className="text-[9px] font-bold text-zinc-500">LIVE SYNC</span>
                     </div>
                 </div>
 
-                {!isActive && (
-                    <div className="flex items-center gap-2 text-[10px] text-zinc-600 font-bold uppercase tracking-widest">
-                        <Sparkles className="h-3 w-3 text-green-500" />
-                        AI is listening for your script
+                <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-3">
+                        <span className="text-[8px] font-bold text-zinc-600 uppercase">Text Size</span>
+                        <input
+                            type="range" min="30" max="100" value={fontSize}
+                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                            className="w-24 accent-blue-500 h-0.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                        />
                     </div>
-                )}
-            </footer>
+                    {!pipWindow && (
+                        <Button
+                            variant="ghost" size="sm"
+                            className="h-6 px-3 text-[9px] font-bold bg-white/5 text-blue-400 border border-white/10"
+                            onClick={handlePip}
+                        >
+                            POP-OUT
+                        </Button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 
     return (
         <>
             {!pipWindow && (
-                <div className="fixed inset-0 z-[100] flex animate-in fade-in zoom-in-95 duration-700">
+                <div className="fixed inset-x-0 top-0 h-[200px] z-[100] flex animate-in slide-in-from-top-full duration-700">
                     {TeleprompterContent}
                 </div>
             )}
