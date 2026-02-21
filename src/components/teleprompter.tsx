@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { X, Zap, ArrowUp } from "lucide-react";
+import { X, Zap, ArrowUp, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -15,7 +15,7 @@ interface TeleprompterProps {
 export function Teleprompter({ content, onClose, autoStart = true }: TeleprompterProps) {
     const { t, lang } = useI18n();
     const [isActive, setIsActive] = useState(false);
-    const [fontSize, setFontSize] = useState(48);
+    const [fontSize, setFontSize] = useState(42);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
     const [hasStartedScrolling, setHasStartedScrolling] = useState(false);
 
@@ -24,7 +24,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const requestRef = useRef<number | null>(null);
 
-    // Segmentation optimized for vertical flow
+    // 1. Segmentation + Sentence Grouping
     const words = useMemo(() => {
         if (lang === "zh") {
             return content.replace(/\s+/g, "").split("");
@@ -32,7 +32,22 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return content.split(/\s+/).filter(w => w.length > 0);
     }, [content, lang]);
 
-    // UNIFIED ACTIVATION LOGIC (RELIABILITY FOCUS)
+    // Pre-calculate which words belong to which sentence
+    const sentenceMap = useMemo(() => {
+        const map = new Array(words.length).fill(0);
+        let currentSentenceId = 0;
+        const delimiters = lang === "zh" ? /[。！？\n]/ : /[.!?\n]/;
+
+        words.forEach((word, i) => {
+            map[i] = currentSentenceId;
+            if (delimiters.test(word)) {
+                currentSentenceId++;
+            }
+        });
+        return map;
+    }, [words, lang]);
+
+    // UNIFIED ACTIVATION LOGIC (STRIP BAR UI)
     const triggerStart = async () => {
         if (isActive) return;
         setIsActive(true);
@@ -40,11 +55,10 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         if ('documentPictureInPicture' in window) {
             try {
                 const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                    width: 600,
-                    height: 500,
+                    width: 900,  // Slimmer, wider bar
+                    height: 150, // Strip shape
                 });
 
-                // 1. Critical Height Setup for scrolling to work
                 const doc = newPipWindow.document;
                 doc.documentElement.style.height = '100%';
                 doc.body.style.height = '100%';
@@ -91,7 +105,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         if (autoStart) triggerStart();
     }, []);
 
-    // HYPER-SENSITIVE SPEECH RECOGNITION
+    // SPEECH RECOGNITION
     useEffect(() => {
         if (!isActive) return;
 
@@ -131,7 +145,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return () => { recognition.onend = null; recognition.stop(); };
     }, [isActive, words, lang, currentWordIndex, hasStartedScrolling]);
 
-    // VERTICAL FLOW ENGINE (REFINED INTERPOLATION)
+    // VERTICAL FLOW ENGINE (STRIP OPTIMIZED)
     const animate = () => {
         if (!isActive || !hasStartedScrolling) {
             requestRef.current = requestAnimationFrame(animate);
@@ -144,23 +158,19 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
             return;
         }
 
-        // Base Drift
         let speed = 0.8;
 
-        // Target Logic
         const activeElement = container.querySelector(`[data-index="${currentWordIndex}"]`) as HTMLElement;
         if (activeElement) {
             const containerHeight = container.clientHeight;
-            // The goal is to keep the current word roughly at 35% from the top
-            const targetPos = activeElement.offsetTop - (containerHeight * 0.35);
+            // In a strip, keep the active line centered
+            const targetPos = activeElement.offsetTop - (containerHeight * 0.4);
             const currentScroll = container.scrollTop;
             const diff = targetPos - currentScroll;
 
-            // Adaptive Speed PID
-            if (diff > 200) speed = 5.0; // Urgent catchup
-            else if (diff > 50) speed = 2.5;
-            else if (diff > 10) speed = 1.2;
-            else if (diff < -20) speed = 0.2; // Ahead, slow down
+            if (diff > 150) speed = 4.0;
+            else if (diff > 30) speed = 2.0;
+            else if (diff < -20) speed = 0.3;
         }
 
         container.scrollTop += speed;
@@ -174,44 +184,50 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
 
     const TeleprompterContent = (
         <div className="flex flex-col h-full w-full bg-black text-white font-sans overflow-hidden select-none">
-            {/* Minimal Header (only visible when hovered in PiP to keep it clean) */}
+            {/* Ultra Minimal Header Toolbar (visible in PiP) */}
             {pipWindow && (
-                <div className="h-4 flex items-center justify-end px-3 bg-zinc-900/30 opacity-0 hover:opacity-100 transition-opacity shrink-0">
+                <div className="h-4 flex items-center justify-end px-4 pt-1 opacity-0 hover:opacity-100 transition-opacity shrink-0 z-50">
                     <Button variant="ghost" size="icon" className="h-4 w-4 text-zinc-600 hover:text-red-500" onClick={() => pipWindow.close()}>
                         <X className="h-3 w-3" />
                     </Button>
                 </div>
             )}
 
-            {/* THE SCROLLING ENGINE VIEWPORT */}
+            {/* THE STRIP VIEWPORT */}
             <div
                 ref={scrollContainerRef}
-                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[45vh] pb-[60vh] px-12"
+                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[20vh] pb-[20vh] px-8"
                 style={{ scrollBehavior: 'auto' }}
             >
-                <div className="max-w-xl mx-auto">
+                <div className="max-w-4xl mx-auto">
                     <div
-                        className="text-center font-black leading-[1.7] flex flex-wrap justify-center gap-x-5 gap-y-4"
-                        style={{ fontSize: `${pipWindow ? (fontSize * 0.75) : fontSize}px` }}
+                        className="text-center font-black leading-[1.3] flex flex-wrap justify-center gap-x-1 gap-y-1" // COMPACT typography
+                        style={{ fontSize: `${pipWindow ? (fontSize * 0.9) : fontSize}px` }}
                     >
                         {words.map((word, i) => {
-                            const isCurrent = i === currentWordIndex;
-                            const isPast = i < currentWordIndex;
+                            const isCurrentWord = i === currentWordIndex;
+                            const isPastWord = i < currentWordIndex;
+
+                            // Sentence highlighting logic
+                            const currentSentenceId = currentWordIndex >= 0 ? sentenceMap[currentWordIndex] : -1;
+                            const isInCurrentSentence = sentenceMap[i] === currentSentenceId;
 
                             return (
                                 <span
                                     key={i}
                                     data-index={i}
-                                    className={`transition-all duration-700 rounded-lg px-2 relative ${isCurrent
-                                            ? "text-green-400 scale-110 drop-shadow-[0_0_25px_rgba(74,222,128,0.6)] z-20"
-                                            : isPast
-                                                ? "text-white/5 opacity-10"
-                                                : "text-white/40"
+                                    className={`transition-all duration-700 rounded-sm px-0.5 relative ${isCurrentWord
+                                            ? "text-sky-400 scale-105 z-30 drop-shadow-[0_0_20px_rgba(56,189,248,0.6)]"
+                                            : isInCurrentSentence
+                                                ? "text-sky-400/80 opaicty-100" // SENTENCE HIGHLIGHT (Light Blue)
+                                                : isPastWord
+                                                    ? "text-white/10 opacity-20"
+                                                    : "text-white/40"
                                         }`}
                                 >
                                     {word}
-                                    {isCurrent && (
-                                        <div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(34,197,94,0.6)]" />
+                                    {isCurrentWord && (
+                                        <div className="absolute -bottom-0.5 left-0 right-0 h-1 bg-sky-500/80 rounded-full shadow-[0_0_15px_rgba(14,165,233,0.5)]" />
                                     )}
                                 </span>
                             );
@@ -220,32 +236,32 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                 </div>
             </div>
 
-            {/* Recording State Overlay */}
+            {/* Status Feedback */}
             {isActive && !hasStartedScrolling && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none bg-black/40">
-                    <div className="bg-zinc-900/80 px-4 py-2 rounded-full border border-green-500/30 flex items-center gap-3 animate-pulse">
-                        <Zap className="h-3 w-3 text-green-500" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-green-400">正在等待语音识别...</span>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/30">
+                    <div className="bg-zinc-900/60 px-3 py-1.5 rounded-full border border-sky-500/30 flex items-center gap-2 animate-pulse">
+                        <Zap className="h-3 w-3 text-sky-400" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-sky-400">Listening...</span>
                     </div>
-                    <p className="mt-4 text-[9px] text-zinc-500 uppercase tracking-[0.3em]">识得第一个字后将开始自动翻页</p>
                 </div>
             )}
 
-            {/* Setup View (Main Tab) */}
+            {/* Main setup view */}
             {!pipWindow && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-lg z-10 transition-opacity">
-                    <div className="text-center space-y-6 max-w-sm p-10 bg-zinc-900/90 rounded-3xl border border-white/5 shadow-2xl">
-                        <div className="h-14 w-14 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/10">
-                            <ArrowUp className="h-7 w-7 text-green-500" />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-xl z-20">
+                    <div className="text-center space-y-6 max-w-sm p-10 bg-zinc-900/95 rounded-3xl border border-white/5 shadow-2xl">
+                        <div className="h-14 w-14 bg-sky-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-sky-500/10">
+                            <Type className="h-7 w-7 text-sky-400" />
                         </div>
-                        <h2 className="text-2xl font-black tracking-tight text-white">独立提词器已激活</h2>
-                        <p className="text-zinc-400 text-sm leading-relaxed px-4">
-                            桌面提词小挂件已弹出。
+                        <h2 className="text-2xl font-black text-white">句组同步已就绪</h2>
+                        <p className="text-zinc-400 text-sm leading-relaxed">
+                            <strong>全新“眼平”长条窗模式：</strong>
+                            浮窗已默认调整为长条状，请将其置于屏幕正上方。
                             <br /><br />
-                            <strong>垂直翻页模式已开启：</strong>
-                            它将像电影字幕一样自动向上滚动，并随您的语速快慢自动调节。
+                            <strong>蓝调整句突显：</strong>
+                            当前朗读的整句话将以天蓝色高亮，帮助您保持自然的录制连贯性。
                         </p>
-                        <Button variant="outline" className="w-full h-12 rounded-xl border-white/10 hover:bg-white/5 text-zinc-300" onClick={onClose}>
+                        <Button variant="outline" className="w-full h-11 rounded-xl border-white/10 text-zinc-400" onClick={onClose}>
                             返回编辑器
                         </Button>
                     </div>
