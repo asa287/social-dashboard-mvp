@@ -5,21 +5,23 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/components/i18n-provider"
 // import { Icons } from "@/components/icons" 
 import { BarChart3, FileText, Settings, LayoutDashboard } from "lucide-react"
 
 export function DashboardNav() {
     const pathname = usePathname()
+    const { t } = useI18n()
 
     const items = [
         {
-            title: "Overview",
+            title: t.nav.dashboard,
             href: "/dashboard",
             icon: LayoutDashboard,
         },
         {
-            title: "Posts",
-            href: "/dashboard/posts",
+            title: t.nav.create,
+            href: "/create",
             icon: FileText,
         },
         {
@@ -28,7 +30,7 @@ export function DashboardNav() {
             icon: BarChart3,
         },
         {
-            title: "Settings",
+            title: t.nav.settings,
             href: "/dashboard/settings",
             icon: Settings,
         },
