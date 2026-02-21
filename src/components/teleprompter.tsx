@@ -32,7 +32,6 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return content.split(/\s+/).filter(w => w.length > 0);
     }, [content, lang]);
 
-    // Pre-calculate which words belong to which sentence
     const sentenceMap = useMemo(() => {
         const map = new Array(words.length).fill(0);
         let currentSentenceId = 0;
@@ -47,17 +46,28 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return map;
     }, [words, lang]);
 
-    // UNIFIED ACTIVATION LOGIC (STRIP BAR UI)
+    // UNIFIED ACTIVATION LOGIC (DOCKING + STRIP BAR)
     const triggerStart = async () => {
         if (isActive) return;
         setIsActive(true);
 
         if ('documentPictureInPicture' in window) {
             try {
+                const screenWidth = window.screen.availWidth;
+                const windowWidth = 900;
+                const left = (screenWidth - windowWidth) / 2;
+
                 const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                    width: 900,  // Slimmer, wider bar
-                    height: 150, // Strip shape
+                    width: windowWidth,
+                    height: 150,
                 });
+
+                // Attempt to position at top-center
+                try {
+                    newPipWindow.moveTo(left, 0);
+                } catch (e) {
+                    console.warn("Window movement constrained", e);
+                }
 
                 const doc = newPipWindow.document;
                 doc.documentElement.style.height = '100%';
@@ -105,7 +115,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         if (autoStart) triggerStart();
     }, []);
 
-    // SPEECH RECOGNITION
+    // SPEECH RECOGNITION (High Precision)
     useEffect(() => {
         if (!isActive) return;
 
@@ -124,7 +134,8 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
             }
             const cleanSpeech = sessionTranscript.replace(/[，。！？、；：“”‘’（）]/g, "").toLowerCase();
 
-            const searchWindow = 25;
+            // Broad search window to catch up phrases
+            const searchWindow = 35;
             let maxMatchIdx = currentWordIndex;
 
             for (let i = currentWordIndex + 1; i < Math.min(words.length, currentWordIndex + searchWindow); i++) {
@@ -145,7 +156,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
         return () => { recognition.onend = null; recognition.stop(); };
     }, [isActive, words, lang, currentWordIndex, hasStartedScrolling]);
 
-    // VERTICAL FLOW ENGINE (STRIP OPTIMIZED)
+    // RECALIBRATED ADAPTIVE ENGINE
     const animate = () => {
         if (!isActive || !hasStartedScrolling) {
             requestRef.current = requestAnimationFrame(animate);
@@ -158,19 +169,22 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
             return;
         }
 
-        let speed = 0.8;
+        // 1. Lower base speed for natural flow
+        let speed = 0.4;
 
+        // 2. Adaptive logic
         const activeElement = container.querySelector(`[data-index="${currentWordIndex}"]`) as HTMLElement;
         if (activeElement) {
             const containerHeight = container.clientHeight;
-            // In a strip, keep the active line centered
-            const targetPos = activeElement.offsetTop - (containerHeight * 0.4);
+            // Target the 35% mark of the strip for the active sentence
+            const targetPos = activeElement.offsetTop - (containerHeight * 0.35);
             const currentScroll = container.scrollTop;
             const diff = targetPos - currentScroll;
 
-            if (diff > 150) speed = 4.0;
-            else if (diff > 30) speed = 2.0;
-            else if (diff < -20) speed = 0.3;
+            // Tighter thresholds for faster adaptation
+            if (diff > 80) speed = 3.8;
+            else if (diff > 10) speed = 1.4;
+            else if (diff < -5) speed = 0.1; // Slow down quickly if we run ahead
         }
 
         container.scrollTop += speed;
@@ -184,7 +198,6 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
 
     const TeleprompterContent = (
         <div className="flex flex-col h-full w-full bg-black text-white font-sans overflow-hidden select-none">
-            {/* Ultra Minimal Header Toolbar (visible in PiP) */}
             {pipWindow && (
                 <div className="h-4 flex items-center justify-end px-4 pt-1 opacity-0 hover:opacity-100 transition-opacity shrink-0 z-50">
                     <Button variant="ghost" size="icon" className="h-4 w-4 text-zinc-600 hover:text-red-500" onClick={() => pipWindow.close()}>
@@ -193,22 +206,19 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                 </div>
             )}
 
-            {/* THE STRIP VIEWPORT */}
             <div
                 ref={scrollContainerRef}
-                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[20vh] pb-[20vh] px-8"
+                className="scroll-container flex-1 overflow-y-auto scrollbar-hide pt-[25vh] pb-[25vh] px-8"
                 style={{ scrollBehavior: 'auto' }}
             >
                 <div className="max-w-4xl mx-auto">
                     <div
-                        className="text-center font-black leading-[1.3] flex flex-wrap justify-center gap-x-1 gap-y-1" // COMPACT typography
+                        className="text-center font-black leading-[1.3] flex flex-wrap justify-center gap-x-1 gap-y-1"
                         style={{ fontSize: `${pipWindow ? (fontSize * 0.9) : fontSize}px` }}
                     >
                         {words.map((word, i) => {
                             const isCurrentWord = i === currentWordIndex;
                             const isPastWord = i < currentWordIndex;
-
-                            // Sentence highlighting logic
                             const currentSentenceId = currentWordIndex >= 0 ? sentenceMap[currentWordIndex] : -1;
                             const isInCurrentSentence = sentenceMap[i] === currentSentenceId;
 
@@ -219,7 +229,7 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                                     className={`transition-all duration-700 rounded-sm px-0.5 relative ${isCurrentWord
                                             ? "text-sky-400 scale-105 z-30 drop-shadow-[0_0_20px_rgba(56,189,248,0.6)]"
                                             : isInCurrentSentence
-                                                ? "text-sky-400/80 opaicty-100" // SENTENCE HIGHLIGHT (Light Blue)
+                                                ? "text-sky-400/80"
                                                 : isPastWord
                                                     ? "text-white/10 opacity-20"
                                                     : "text-white/40"
@@ -253,13 +263,13 @@ export function Teleprompter({ content, onClose, autoStart = true }: Teleprompte
                         <div className="h-14 w-14 bg-sky-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-sky-500/10">
                             <Type className="h-7 w-7 text-sky-400" />
                         </div>
-                        <h2 className="text-2xl font-black text-white">句组同步已就绪</h2>
+                        <h2 className="text-2xl font-black text-white">提词器已校准</h2>
                         <p className="text-zinc-400 text-sm leading-relaxed">
-                            <strong>全新“眼平”长条窗模式：</strong>
-                            浮窗已默认调整为长条状，请将其置于屏幕正上方。
+                            <strong>自适应速度优化：</strong>
+                            滚动引擎已针对自然语速进行了重新校准，能更灵敏地响应您的节奏。
                             <br /><br />
-                            <strong>蓝调整句突显：</strong>
-                            当前朗读的整句话将以天蓝色高亮，帮助您保持自然的录制连贯性。
+                            <strong>置顶居中对齐：</strong>
+                            浮窗将尝试自动定位在屏幕正上方中央。
                         </p>
                         <Button variant="outline" className="w-full h-11 rounded-xl border-white/10 text-zinc-400" onClick={onClose}>
                             返回编辑器
