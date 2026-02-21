@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Mic, MonitorPlay, Settings, X, Play, Square, Video, Info, Maximize2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,20 +9,21 @@ import { useI18n } from "@/components/i18n-provider";
 interface TeleprompterProps {
     content: string;
     onClose: () => void;
+    externalPipWindow?: Window | null; // Pass from parent for instant gesture-triggered PiP
 }
 
-export function Teleprompter({ content, onClose }: TeleprompterProps) {
+export function Teleprompter({ content, onClose, externalPipWindow }: TeleprompterProps) {
     const { t, lang } = useI18n();
     const [isActive, setIsActive] = useState(false);
     const [fontSize, setFontSize] = useState(48);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
     const [progress, setProgress] = useState(0);
 
-    const [pipWindow, setPipWindow] = useState<Window | null>(null);
+    // Internal PiP state
+    const [pipWindow, setPipWindow] = useState<Window | null>(externalPipWindow || null);
     const pipRootRef = useRef<HTMLDivElement | null>(null);
-    const hasAttemptedAutoPip = useRef(false);
 
-    // Optimized segmentation for tracking
+    // Phrase segmentation
     const words = useMemo(() => {
         if (lang === "zh") {
             return content.replace(/\s+/g, "").split("");
@@ -30,43 +31,12 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         return content.split(/\s+/).filter(w => w.length > 0);
     }, [content, lang]);
 
-    // Tracking state
+    // Adaptive speed state
     const lastMatchTime = useRef<number>(Date.now());
-    const [adaptiveSpeed, setAdaptiveSpeed] = useState(1);
-    const recognitionRef = useRef<any>(null);
+    const [adaptiveSpeed, setAdaptiveSpeed] = useState(1.2);
 
-    // Hyper-sensitive matching function
-    const handleVoiceResult = useCallback((transcript: string) => {
-        const cleanSpeech = transcript.replace(/[，。！？、；：“”‘’（）]/g, "").toLowerCase();
-        const searchRange = 30;
-        let bestIdx = -1;
-
-        for (let i = currentWordIndex + 1; i < Math.min(currentWordIndex + searchRange, words.length); i++) {
-            const char = words[i].toLowerCase();
-            const phrase = char + (words[i + 1] || "");
-
-            // GREEDY MATCHING
-            if (cleanSpeech.includes(phrase) || cleanSpeech.endsWith(char)) {
-                bestIdx = i;
-            }
-        }
-
-        if (bestIdx > currentWordIndex) {
-            const now = Date.now();
-            const timeDiff = (now - lastMatchTime.current) / 1000;
-            const distance = bestIdx - currentWordIndex;
-
-            if (timeDiff > 0.05) {
-                const newSpeed = Math.min(Math.max(distance / timeDiff, 0.5), 25);
-                setAdaptiveSpeed(newSpeed);
-            }
-
-            lastMatchTime.current = now;
-            setCurrentWordIndex(bestIdx);
-        }
-    }, [currentWordIndex, words]);
-
-    // Voice recognition setup
+    // CUMULATIVE FUZZY MATCHING (V6 Professional Logic)
+    // This logic handles "lag" and "similarity" much better
     useEffect(() => {
         if (!isActive) {
             setCurrentWordIndex(-1);
@@ -83,35 +53,60 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         recognition.lang = lang === "zh" ? "zh-CN" : "en-US";
 
         recognition.onresult = (event: any) => {
-            let fullTranscript = "";
+            // We analyze the entire current 'result' cluster to pick up missed chars
+            let sessionTranscript = "";
             for (let i = 0; i < event.results.length; i++) {
-                fullTranscript += event.results[i][0].transcript;
+                sessionTranscript += event.results[i][0].transcript;
             }
-            handleVoiceResult(fullTranscript);
+            const cleanSpeech = sessionTranscript.replace(/[，。！？、；：“”‘’（）]/g, "").toLowerCase();
+
+            // SENSITIVITY SEARCH: Look ahead up to 25 chars/words
+            const searchWindow = 25;
+            let bestMatchIdx = currentWordIndex;
+
+            for (let i = currentWordIndex + 1; i < Math.min(currentWordIndex + searchWindow, words.length); i++) {
+                const target = words[i].toLowerCase();
+                const nextTarget = words[i + 1]?.toLowerCase() || "";
+                const biGram = target + nextTarget;
+
+                // Threshold Check: If the transcript contains the bigram OR the ending matches the char
+                // This is much more sensitive than exact string matching
+                if (cleanSpeech.includes(biGram) || cleanSpeech.endsWith(target)) {
+                    bestMatchIdx = i;
+                }
+            }
+
+            if (bestMatchIdx > currentWordIndex) {
+                const now = Date.now();
+                const deltaT = (now - lastMatchTime.current) / 1000;
+                const deltaD = bestMatchIdx - currentWordIndex;
+
+                if (deltaT > 0.1) {
+                    // Update CPS (Characters Per Second)
+                    setAdaptiveSpeed(prev => (prev * 0.7) + ((deltaD / deltaT) * 0.3));
+                }
+
+                lastMatchTime.current = now;
+                setCurrentWordIndex(bestMatchIdx);
+            }
         };
 
         recognition.onend = () => { if (isActive) try { recognition.start(); } catch { } };
         recognition.start();
-        recognitionRef.current = recognition;
+        return () => { recognition.onend = null; recognition.stop(); };
+    }, [isActive, words, lang, currentWordIndex]);
 
-        return () => {
-            if (recognitionRef.current) {
-                recognitionRef.current.onend = null;
-                recognitionRef.current.stop();
-            }
-        };
-    }, [isActive, lang, handleVoiceResult]);
-
-    // Smooth visual interpolation
+    // Visual Smoothing
     useEffect(() => {
         if (!isActive || currentWordIndex >= words.length - 1) return;
-        let lastTimestamp = performance.now();
-        const animate = (timestamp: number) => {
-            const dt = (timestamp - lastTimestamp) / 1000;
-            lastTimestamp = timestamp;
+        let lastT = performance.now();
+        const animate = (now: number) => {
+            const dt = (now - lastT) / 1000;
+            lastT = now;
             setProgress(prev => {
-                const next = prev + (dt * adaptiveSpeed) / 1.1;
-                return Math.min(next, currentWordIndex + 1);
+                const next = prev + (dt * adaptiveSpeed);
+                // Clamp visual progress: cannot be more than 3 units ahead of real match
+                return Math.min(next, currentWordIndex + 3);
             });
             requestAnimationFrame(animate);
         };
@@ -119,86 +114,82 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
         return () => cancelAnimationFrame(id);
     }, [isActive, adaptiveSpeed, currentWordIndex, words.length]);
 
-    // Scrolling logic
+    // Handle PiP Window Setup
     useEffect(() => {
-        const container = pipWindow ? pipRootRef.current?.querySelector('.scroll-container') : document.querySelector('.main-tele-container');
-        if (container) {
-            const activeIdx = Math.floor(progress);
-            const activeElement = container.querySelector(`[data-index="${activeIdx}"]`);
-            if (activeElement) {
-                activeElement.scrollIntoView({ behavior: "smooth", block: "center" });
-            }
-        }
-    }, [progress, pipWindow]);
+        if (pipWindow && !pipRootRef.current) {
+            const doc = pipWindow.document;
 
-    // PiP Launch
-    const launchPip = useCallback(async () => {
-        if (!('documentPictureInPicture' in window) || pipWindow) return;
-        try {
-            const newPipWindow = await (window as any).documentPictureInPicture.requestWindow({
-                width: 600,
-                height: 480,
-            });
+            // 1. Clear previous content
+            doc.body.innerHTML = "";
 
-            // Robust Style Injection
+            // 2. Transmit styles
             [...document.styleSheets].forEach((sheet) => {
                 try {
-                    const style = newPipWindow.document.createElement('style');
-                    const cssRules = [...(sheet as any).cssRules].map(r => r.cssText).join('');
-                    style.textContent = cssRules;
-                    newPipWindow.document.head.appendChild(style);
+                    const css = [...(sheet as any).cssRules].map(r => r.cssText).join('');
+                    const s = doc.createElement('style');
+                    s.textContent = css;
+                    doc.head.appendChild(s);
                 } catch (e) {
                     if (sheet.href) {
-                        const link = newPipWindow.document.createElement('link');
-                        link.rel = 'stylesheet'; link.href = sheet.href;
-                        newPipWindow.document.head.appendChild(link);
+                        const l = doc.createElement('link');
+                        l.rel = 'stylesheet'; l.href = sheet.href;
+                        doc.head.appendChild(l);
                     }
                 }
             });
 
-            // Set up body
-            newPipWindow.document.body.style.margin = '0';
-            newPipWindow.document.body.style.backgroundColor = 'black';
-            newPipWindow.document.body.style.overflow = 'hidden';
-
-            const root = newPipWindow.document.createElement('div');
+            // 3. Setup Layout
+            const root = doc.createElement('div');
             root.id = 'pip-root';
-            root.style.height = '100vh';
-            newPipWindow.document.body.appendChild(root);
+            doc.body.appendChild(root);
+            doc.body.style.margin = '0';
+            doc.body.style.background = 'black';
+            doc.body.style.overflow = 'hidden';
 
-            setPipWindow(newPipWindow);
             pipRootRef.current = root;
-            newPipWindow.addEventListener('pagehide', () => { setPipWindow(null); pipRootRef.current = null; }, { once: true });
-        } catch (err) { console.error(err); }
+
+            pipWindow.addEventListener('pagehide', () => {
+                setPipWindow(null);
+                pipRootRef.current = null;
+            }, { once: true });
+        }
     }, [pipWindow]);
 
-    // AUTO-PIP ON MOUNT (Triggered by the same click that mounts the component)
+    // Scroll Sync
     useEffect(() => {
-        if (!hasAttemptedAutoPip.current) {
-            hasAttemptedAutoPip.current = true;
-            launchPip();
+        const container = pipWindow ? pipRootRef.current?.querySelector('.scroll-container') : document.querySelector('.main-tele-container');
+        if (container) {
+            const activeIdx = Math.floor(progress);
+            const el = container.querySelector(`[data-index="${activeIdx}"]`);
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
         }
-    }, [launchPip]);
+    }, [progress, pipWindow]);
 
     const TeleprompterContent = (
         <div className={`flex flex-col bg-black text-white font-sans overflow-hidden h-full w-full ${pipWindow ? 'fixed inset-0' : ''}`}>
-            <header className="flex items-center justify-between px-6 py-2 bg-zinc-900 border-b border-white/10 shrink-0">
+            {/* Minimal Control Bar */}
+            <header className="flex items-center justify-between px-6 py-2 bg-zinc-900/60 border-b border-white/5 backdrop-blur-md shrink-0">
                 <div className="flex items-center gap-2">
-                    <Zap className={`h-3 w-3 ${isActive ? 'text-yellow-400 fill-yellow-400' : 'text-zinc-500'}`} />
-                    <span className="text-[9px] font-black tracking-[0.3em] uppercase">{t.create.teleprompter.title}</span>
+                    <Zap className={`h-3 w-3 ${isActive ? 'text-green-400 fill-green-400' : 'text-zinc-600'}`} />
+                    <span className="text-[8px] font-black tracking-widest uppercase opacity-40">{t.create.teleprompter.title}</span>
                 </div>
-                {!pipWindow && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-zinc-500 hover:text-red-500" onClick={onClose}>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 px-2 py-0.5 bg-white/5 rounded-full border border-white/10">
+                        <span className="text-[8px] text-zinc-500">CPS</span>
+                        <span className="text-[10px] font-mono text-green-500/80">{adaptiveSpeed.toFixed(1)}</span>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-white" onClick={onClose}>
                         <X className="h-4 w-4" />
                     </Button>
-                )}
+                </div>
             </header>
 
-            <div className="scroll-container main-tele-container flex-1 overflow-y-auto scrollbar-hide pt-[30vh] pb-[40vh] px-8 md:px-16">
+            {/* FLUID TEXT AREA */}
+            <div className={`scroll-container main-tele-container flex-1 overflow-y-auto scrollbar-hide pt-[25vh] pb-[45vh] px-10 transition-all duration-500 ${pipWindow ? 'px-6 pt-[15vh]' : 'md:px-32 lg:px-48'}`}>
                 <div className="max-w-4xl mx-auto">
                     <div
-                        className="leading-[1.5] text-center select-none flex flex-wrap justify-center gap-x-2 relative"
-                        style={{ fontSize: `${fontSize}px` }}
+                        className="leading-[1.5] text-center select-none flex flex-wrap justify-center gap-x-1.5 transition-all duration-300"
+                        style={{ fontSize: `${pipWindow ? fontSize * 0.8 : fontSize}px` }}
                     >
                         {words.map((word, i) => {
                             const localProgress = Math.max(0, Math.min(1, progress - i));
@@ -206,9 +197,10 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                                 <span
                                     key={i}
                                     data-index={i}
-                                    className={`relative px-1 py-1 my-1 transition-transform duration-300 ${i === Math.floor(progress) ? 'scale-110 z-10' : ''}`}
+                                    className={`transition-all duration-300 rounded px-1 py-1 ${i === Math.floor(progress) ? "scale-105 z-10 font-bold" : ""
+                                        }`}
                                     style={{
-                                        backgroundImage: `linear-gradient(90deg, #22c55e ${localProgress * 100}%, #71717a ${localProgress * 100}%)`,
+                                        backgroundImage: `linear-gradient(90deg, #4ade80 ${localProgress * 100}%, #71717a ${localProgress * 100}%)`,
                                         WebkitBackgroundClip: 'text',
                                         WebkitTextFillColor: 'transparent',
                                     }}
@@ -221,35 +213,43 @@ export function Teleprompter({ content, onClose }: TeleprompterProps) {
                 </div>
             </div>
 
-            <footer className="shrink-0 p-8 bg-black border-t border-white/10 flex flex-col items-center gap-4">
-                <Button
-                    size="lg"
-                    className={`rounded-full h-14 w-14 transition-all duration-500 shadow-xl ${isActive ? "bg-red-500 shadow-red-500/20" : "bg-green-600 shadow-green-500/20"}`}
-                    onClick={() => setIsActive(!isActive)}
-                >
-                    {isActive ? <Square className="h-6 w-6 text-white" /> : <Play className="h-6 w-6 ml-1 text-white" />}
-                </Button>
-                <div className="flex gap-10 w-full max-w-sm">
-                    <div className="flex-1 space-y-1">
-                        <div className="flex justify-between text-[8px] font-bold text-zinc-500 uppercase tracking-widest">
-                            <span>{t.create.teleprompter.fontSize}</span>
-                            <span className="text-zinc-300">{fontSize}px</span>
+            {/* Footer Only in Main View */}
+            {!pipWindow && (
+                <footer className="shrink-0 p-8 bg-zinc-950 border-t border-white/5 flex flex-col items-center gap-5">
+                    <Button
+                        size="lg"
+                        className={`rounded-full h-14 w-14 transition-all duration-500 ${isActive ? "bg-red-500 animate-pulse" : "bg-green-600"
+                            }`}
+                        onClick={() => setIsActive(!isActive)}
+                    >
+                        {isActive ? <Square className="h-6 w-6" /> : <Play className="h-6 w-6 ml-1" />}
+                    </Button>
+                    <div className="w-64 space-y-2">
+                        <div className="flex justify-between text-[8px] font-bold text-zinc-500 uppercase">
+                            <label>Zoom</label>
+                            <span>{fontSize}px</span>
                         </div>
-                        <input type="range" min="30" max="150" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full h-1 bg-zinc-800 accent-green-500 appearance-none cursor-pointer rounded-full" />
+                        <input
+                            type="range" min="30" max="150" value={fontSize}
+                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                            className="w-full h-1 bg-zinc-800 rounded-lg appearance-none accent-green-500"
+                        />
                     </div>
-                </div>
-            </footer>
+                </footer>
+            )}
         </div>
     );
 
     return (
-        <>
-            {!pipWindow && (
-                <div className="fixed inset-0 z-[100] flex">
-                    {TeleprompterContent}
-                </div>
+        <div className="fixed inset-0 z-[100] flex">
+            {/* Render in current window if not in PiP */}
+            {!pipWindow && TeleprompterContent}
+
+            {/* Render in PiP window if it exists */}
+            {pipWindow && pipRootRef.current && createPortal(
+                TeleprompterContent,
+                pipRootRef.current
             )}
-            {pipWindow && pipRootRef.current && createPortal(TeleprompterContent, pipRootRef.current)}
-        </>
+        </div>
     );
 }

@@ -12,6 +12,25 @@ export default function TeleprompterPage() {
     const { t } = useI18n();
     const [content, setContent] = useState("");
     const [showTeleprompter, setShowTeleprompter] = useState(false);
+    const [pipWindow, setPipWindow] = useState<Window | null>(null);
+
+    const handleStart = async () => {
+        if (!content.trim()) return;
+
+        // Instant PiP Launch on Start
+        if ('documentPictureInPicture' in window) {
+            try {
+                const win = await (window as any).documentPictureInPicture.requestWindow({
+                    width: 600,
+                    height: 450,
+                });
+                setPipWindow(win);
+            } catch (err) {
+                console.error("PiP failed, using standard modal", err);
+            }
+        }
+        setShowTeleprompter(true);
+    };
 
     return (
         <div className="flex flex-col space-y-6 p-4 md:p-8">
@@ -32,14 +51,7 @@ export default function TeleprompterPage() {
                             </div>
                             <Button
                                 className="bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20 px-6"
-                                onClick={async () => {
-                                    // Pre-launch PiP if supported (requires user gesture)
-                                    if ('documentPictureInPicture' in window) {
-                                        setShowTeleprompter(true);
-                                    } else {
-                                        setShowTeleprompter(true);
-                                    }
-                                }}
+                                onClick={handleStart}
                                 disabled={!content.trim()}
                             >
                                 <Play className="mr-2 h-4 w-4 fill-current" />
@@ -100,6 +112,7 @@ export default function TeleprompterPage() {
                 <Teleprompter
                     content={content}
                     onClose={() => setShowTeleprompter(false)}
+                    externalPipWindow={pipWindow}
                 />
             )}
         </div>
